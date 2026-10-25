@@ -1,0 +1,10 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# IDE specific ignores
+.idea/
+.vscode/
+
+# local scratch (design drafts, notes)
+.local/
