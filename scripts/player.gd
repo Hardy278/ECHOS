@@ -13,6 +13,17 @@ const SIZE := Vector2(10, 16)
 var _t := 0.0
 var _fall_speed := 0.0
 
+@onready var _collider: CollisionShape2D = $CollisionShape2D
+
+
+func _ready() -> void:
+	# SIZE 是唯一尺寸来源：碰撞盒和画出来的方框都从它推，避免场景里再手写一遍 10x16
+	var box := _collider.shape as RectangleShape2D
+	if box != null:
+		box = box.duplicate() as RectangleShape2D   # 子资源在实例间共享，改前先复制
+		box.size = SIZE
+		_collider.shape = box
+
 
 func _physics_process(delta: float) -> void:
 	var ix := Input.get_axis("move_left", "move_right")

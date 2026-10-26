@@ -10,6 +10,8 @@ extends Node2D
 ## 多声道：不同声源射程差 6 倍，叠加后无法按来源分开衰减，所以每个声源
 ## 一张独立的场纹理，显示时各自套自己的 reach/falloff 再合成。
 
+const TILE_FIELD := preload("res://scripts/tile_field.gd")
+
 const FW := 480
 const FH := 270
 
@@ -42,10 +44,15 @@ const CH_HB := 0
 const CH_LAND := 1
 const CH_SHOUT := 2
 
-var geom: LevelGeometry
+## 三层 TileMapLayer（前景 / 中景 / 后景），由主场景在 add_child 之前赋值
+var tilemap: TileMapLayer
+var tilemap_mid: TileMapLayer
+var tilemap_bg: TileMapLayer
 var _chs: Array = []
 var _mat_tex: ImageTexture
 var _band_tex: ImageTexture
+var _classes_tex: ImageTexture  # R=实体 G=单向 B=装饰，F2 调试用
+var _tile_mats: Array = []      # 两个 TileMapLayer 的光照材质
 var _view_mat: ShaderMaterial
 var _view_tr: TextureRect
 var _layer: CanvasLayer
@@ -57,8 +64,11 @@ var _step_acc := 0.0
 
 var last_peak := 0.0
 
-## 显示参数，运行期可调（主场景绑了按键）
+## 显示参数：只在 _ready 应用一次，运行期不再变（要调就改默认值）
 var view_params := {"bg_gain": 1.15, "edge_gain": 4.0, "bg_blur": 1.20}
+
+## 给 HUD 的一行内部状态，_ready 里算一次
+var _debug_line := ""
 
 
 func _apply_view_params() -> void:
@@ -66,15 +76,13 @@ func _apply_view_params() -> void:
 		_view_mat.set_shader_parameter(k, view_params[k])
 
 
-func adjust_view(param: String, delta: float) -> void:
-	view_params[param] = clampf(view_params[param] + delta, 0.0, 8.0)
-	_apply_view_params()
-
-
 func _ready() -> void:
-	geom = LevelGeometry.new()
-	_mat_tex = _build_material()
-	_band_tex = _build_surface_band()
+	# 几何从 TileMapLayer 的碰撞多边形烘出来：物理撞到的墙和声音反弹的墙是同一批墙
+	var baked := TILE_FIELD.bake([tilemap, tilemap_mid, tilemap_bg], Vector2i(FW, FH))
+	_mat_tex = baked["mat"]
+	_band_tex = baked["band"]
+	_classes_tex = baked["classes"]
+	print("[回响场] %s" % baked["summary"])
 
 	var step_shader: Shader = load("res://shaders/wave_step_fb.gdshader")
 
@@ -150,6 +158,8 @@ func _ready() -> void:
 	_view_tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	_apply_view_params()
+	_setup_tile_materials()
+	_debug_line = "子步 %d · stride %d · 波速 %.0f 单位/秒" % [SUBSTEPS, STRIDE, wave_speed()]
 	_active = true
 	_begin_reset()
 
@@ -214,6 +224,8 @@ func _emit(ch: int, origin: Vector2, amp: float, steps: int) -> void:
 func set_listener(pos: Vector2) -> void:
 	if _view_mat:
 		_view_mat.set_shader_parameter("listener_px", pos)
+	for m in _tile_mats:
+		(m as ShaderMaterial).set_shader_parameter("listener_px", pos)
 
 
 func _set_src(ch: int, origin: Vector2) -> void:
@@ -258,45 +270,43 @@ func wave_speed() -> float:
 	return STRIDE * sqrt(CFL) * STEPS_HZ
 
 
-# ---------------------------------------------------------------- 贴图
-
-func _build_material() -> ImageTexture:
-	var img := Image.create(FW, FH, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 1))
-	for i in geom.solids.size():
-		var r: Rect2 = geom.solids[i]
-		var ri := Rect2i(
-			Vector2i(int(floor(r.position.x)), int(floor(r.position.y))),
-			Vector2i(int(ceil(r.size.x)), int(ceil(r.size.y))))
-		img.fill_rect(ri, Color(1.0, geom.solid_abs[i], 0.0, 1.0))
-	return ImageTexture.create_from_image(img)
+## 一行内部状态，交给 HUD 显示（HUD 不反向去读这里的常量）
+func debug_line() -> String:
+	return _debug_line
 
 
-## 表面带：贴着固体的空气格（1 texel），用来勾物体轮廓
-func _build_surface_band() -> ImageTexture:
-	var solid := PackedByteArray()
-	solid.resize(FW * FH)
-	for i in geom.solids.size():
-		var r: Rect2 = geom.solids[i]
-		var x0 := maxi(0, int(floor(r.position.x)))
-		var y0 := maxi(0, int(floor(r.position.y)))
-		var x1 := mini(FW - 1, int(ceil(r.position.x + r.size.x)))
-		var y1 := mini(FH - 1, int(ceil(r.position.y + r.size.y)))
-		for y in range(y0, y1 + 1):
-			for x in range(x0, x1 + 1):
-				solid[y * FW + x] = 1
+# ---------------------------------------------------------------- 图块光照
 
-	var img := Image.create(FW, FH, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 1))
-	var band := 1
-	for i in geom.solids.size():
-		var r: Rect2 = geom.solids[i]
-		var x0 := maxi(0, int(floor(r.position.x)) - band)
-		var y0 := maxi(0, int(floor(r.position.y)) - band)
-		var x1 := mini(FW - 1, int(ceil(r.position.x + r.size.x)) + band)
-		var y1 := mini(FH - 1, int(ceil(r.position.y + r.size.y)) + band)
-		for y in range(y0, y1 + 1):
-			for x in range(x0, x1 + 1):
-				if solid[y * FW + x] == 0:
-					img.set_pixel(x, y, Color(1, 1, 1, 1))
-	return ImageTexture.create_from_image(img)
+## 图块本身不发光：只有回响场照亮的地方才显形（暗处透明，露出身后的行波）
+func _setup_tile_materials() -> void:
+	if tilemap != null:
+		tilemap.material = _make_tile_material(1.0)
+	if tilemap_mid != null:
+		tilemap_mid.material = _make_tile_material(0.80)
+	if tilemap_bg != null:
+		tilemap_bg.material = _make_tile_material(0.55)
+
+
+func _make_tile_material(layer_gain: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/tile_light.gdshader")
+	m.set_shader_parameter("field_hb", _chs[CH_HB]["vp"].get_texture())
+	m.set_shader_parameter("field_land", _chs[CH_LAND]["vp"].get_texture())
+	m.set_shader_parameter("field_shout", _chs[CH_SHOUT]["vp"].get_texture())
+	m.set_shader_parameter("field_size", Vector2(FW, FH))
+	m.set_shader_parameter("listener_px", Vector2(240, 238))
+	for i in [CH_HB, CH_LAND, CH_SHOUT]:
+		var key := "rf_" + str(CH_PARAMS[i]["key"])
+		m.set_shader_parameter(key, Vector2(CH_PARAMS[i]["reach"], CH_PARAMS[i]["falloff"]))
+	m.set_shader_parameter("gain", view_params["edge_gain"])
+	m.set_shader_parameter("blur_px", view_params["bg_blur"])
+	m.set_shader_parameter("layer_gain", layer_gain)
+	_tile_mats.append(m)
+	return m
+
+
+# ---------------------------------------------------------------- 调试
+
+## 分类图（R=实体 G=单向 B=装饰），F2 用它看烘出来的东西对不对
+func debug_texture() -> Texture2D:
+	return _classes_tex

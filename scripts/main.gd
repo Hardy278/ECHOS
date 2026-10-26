@@ -1,24 +1,30 @@
 extends Node2D
 
-## 主场景。回响场用 GPU 波动方程（wave_field.gd）。
-## 射线法已从构建中移除（脚本仍在 scripts/ 下，未使用），F3 保留一个开关方便对照。
+## 主场景：装配 + 流程。
+## Player（player.tscn 的实例）、相机、HUD 都是 main.tscn 里的节点；
+## 输入动作定义在 project.godot 的 Input Map 里，这里不再用代码注册。
+## 几何唯一来源是 TileMapLayer 的碰撞多边形；回响场走 GPU 波动方程
+## （wave_field.gd 把图块碰撞烘成场纹理，再用 wave_step_fb / wave_view 两个 shader）。
 ##
-## 左键/Q 发声   A/D 移动   空格 跳   F1 射线确定性（对照用）   F2 显示几何   R 复位
+## 左键/Q 发声   A/D 移动   空格 跳   F2 显示几何   R 复位
 
-const PLAYER_SCRIPT := preload("res://scripts/player.gd")
 const WAVE_SCRIPT := preload("res://scripts/wave_field.gd")
 
-const SPAWN := Vector2(240, 238)
 const SHOUT_CD := 2.0
 const HEARTBEAT_HZ := 1.0
 const HB_AMP := 0.045          # 心跳：极其微弱，只够亮出贴身的轮廓
 const LAND_AMP := 0.05         # 落地基底 + 按冲击速度加成
 const LAND_AMP_MAX := 0.20
 
-var geom: LevelGeometry
+@onready var player: CharacterBody2D = $Player
+@onready var camera: Camera2D = $Camera
+@onready var hud: Label = $Hud/Label
+@onready var foreground: TileMapLayer = $ForeGround
+@onready var midground: TileMapLayer = get_node_or_null("MidGround") as TileMapLayer
+@onready var background: TileMapLayer = $Background
+
 var wave
-var player: CharacterBody2D
-var hud: Label
+var spawn: Vector2              # 出生点 = main.tscn 里 Player 节点的摆放位置
 
 var _cd := 0.0
 var _hb := HEARTBEAT_HZ
@@ -26,13 +32,15 @@ var _debug_geo := false
 
 
 func _ready() -> void:
-	_setup_input()
-	geom = LevelGeometry.new()
-	_build_colliders()
-	_build_player()
-	_build_camera()
+	spawn = player.position
+	camera.make_current()
+
+	# 2D 按树序绘制：后景必须在后面，否则会盖住前景
+	background.z_index = -2
+	if midground != null:
+		midground.z_index = -1
+
 	_build_wave()
-	_build_hud()
 	player.landed.connect(_on_landed)
 
 	if OS.get_cmdline_args().has("--capture") or OS.get_cmdline_user_args().has("--capture"):
@@ -43,79 +51,13 @@ func _ready() -> void:
 
 # ---------------------------------------------------------------- 装配
 
-func _setup_input() -> void:
-	_action("move_left", [KEY_A, KEY_LEFT])
-	_action("move_right", [KEY_D, KEY_RIGHT])
-	_action("jump", [KEY_SPACE, KEY_W, KEY_UP])
-	_action("shout", [KEY_Q])
-	_action("dbg", [KEY_F2])
-	_action("reset", [KEY_R])
-	_action("wave_down", [KEY_BRACKETLEFT])
-	_action("wave_up", [KEY_BRACKETRIGHT])
-	_action("edge_down", [KEY_COMMA])
-	_action("edge_up", [KEY_PERIOD])
-	_action("blur_down", [KEY_MINUS])
-	_action("blur_up", [KEY_EQUAL])
-
-
-func _action(n: String, keys: Array) -> void:
-	if InputMap.has_action(n) and not InputMap.action_get_events(n).is_empty():
-		return
-	if not InputMap.has_action(n):
-		InputMap.add_action(n)
-	for k in keys:
-		var ev := InputEventKey.new()
-		ev.physical_keycode = k
-		InputMap.action_add_event(n, ev)
-
-
-func _build_colliders() -> void:
-	var body := StaticBody2D.new()
-	body.name = "Solids"
-	add_child(body)
-	for r in geom.solids:
-		var cs := CollisionShape2D.new()
-		var shape := RectangleShape2D.new()
-		shape.size = r.size
-		cs.shape = shape
-		cs.position = r.position + r.size * 0.5
-		body.add_child(cs)
-
-
-func _build_player() -> void:
-	player = PLAYER_SCRIPT.new()
-	player.position = SPAWN
-	var cs := CollisionShape2D.new()
-	var shape := RectangleShape2D.new()
-	shape.size = Vector2(10, 16)
-	cs.shape = shape
-	player.add_child(cs)
-	add_child(player)
-
-
-func _build_camera() -> void:
-	var cam := Camera2D.new()
-	cam.position = Vector2(240, 135)
-	cam.zoom = Vector2(2, 2)
-	add_child(cam)
-	cam.make_current()
-
-
 func _build_wave() -> void:
 	wave = WAVE_SCRIPT.new()
 	wave.name = "WaveField"
+	wave.tilemap = foreground
+	wave.tilemap_mid = midground
+	wave.tilemap_bg = background
 	add_child(wave)
-
-
-func _build_hud() -> void:
-	var layer := CanvasLayer.new()
-	layer.layer = 10
-	add_child(layer)
-	hud = Label.new()
-	hud.position = Vector2(8, 6)
-	hud.add_theme_font_size_override("font_size", 11)
-	hud.add_theme_color_override("font_color", Color(0.62, 0.80, 0.92, 0.9))
-	layer.add_child(hud)
 
 
 # ---------------------------------------------------------------- 循环
@@ -139,23 +81,9 @@ func _process(delta: float) -> void:
 		_debug_geo = not _debug_geo
 		queue_redraw()
 	if Input.is_action_just_pressed("reset"):
-		player.position = SPAWN
+		player.position = spawn
 		player.velocity = Vector2.ZERO
 		wave.clear()
-
-	# 画面参数实时可调：写论文不如自己拧
-	if Input.is_action_pressed("wave_down"):
-		wave.adjust_view("bg_gain", -0.05)
-	if Input.is_action_pressed("wave_up"):
-		wave.adjust_view("bg_gain", 0.05)
-	if Input.is_action_pressed("edge_down"):
-		wave.adjust_view("edge_gain", -0.2)
-	if Input.is_action_pressed("edge_up"):
-		wave.adjust_view("edge_gain", 0.2)
-	if Input.is_action_pressed("blur_down"):
-		wave.adjust_view("bg_blur", -0.05)
-	if Input.is_action_pressed("blur_up"):
-		wave.adjust_view("bg_blur", 0.05)
 
 	_update_hud()
 
@@ -179,27 +107,24 @@ func _on_landed(strength: float) -> void:
 
 func _update_hud() -> void:
 	var cd_txt := "可发声" if _cd <= 0.0 else "冷却 %.1fs" % _cd
-	hud.text = "A/D 移动  空格 跳  左键/Q 发声  R 复位  F2 几何\n[ ] 行波 %.2f   , . 边缘 %.2f   - = 柔化 %.2f\n%s   子步 %d · stride %d · 波速 %.0f 单位/秒" % [
-		wave.view_params["bg_gain"], wave.view_params["edge_gain"],
-		wave.view_params["bg_blur"],
-		cd_txt, wave.SUBSTEPS, wave.STRIDE, wave.wave_speed()]
+	hud.text = "A/D 移动  空格 跳  左键/Q 发声  R 复位  F2 几何\n%s\n%s" % [
+		cd_txt, wave.debug_line()]
 
 
 func _draw() -> void:
-	if not _debug_geo:
+	if not _debug_geo or wave == null:
 		return
-	for i in geom.solids.size():
-		var r: Rect2 = geom.solids[i]
-		var abs_val: float = geom.solid_abs[i]
-		var c := Color(0.18, 0.42, 0.26, 0.85) if abs_val < 0.5 else Color(0.55, 0.22, 0.22, 0.85)
-		draw_rect(r, c, false, 0.5)
+	var tex: Texture2D = wave.debug_texture()
+	if tex != null:
+		# R=实体 G=单向木台 B=无碰撞装饰：直接看烘出来的分类图
+		draw_texture_rect(tex, Rect2(0, 0, 480, 270), false, Color(1, 1, 1, 0.5))
 
 
 # ---------------------------------------------------------------- 截图 / 自检
 
 func _run_capture() -> void:
 	await get_tree().create_timer(0.6).timeout
-	wave.ping(SPAWN)
+	wave.ping(spawn)
 	_cd = SHOUT_CD
 	var t0 := Time.get_ticks_msec()
 
@@ -241,6 +166,20 @@ func _run_selftest() -> void:
 	await get_tree().create_timer(0.4).timeout
 	print("[自检] 落地: pos=(%.1f, %.1f)  贴地=%s" % [player.position.x, player.position.y, player.is_on_floor()])
 
+	# 输入已搬到 project.godot：真发一个 F2 按键事件，验证 InputMap 映射（而不是只查动作名）
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_F2
+	key.pressed = true
+	Input.parse_input_event(key)
+	await get_tree().process_frame   # process_frame 在 _process 之前发出
+	await get_tree().process_frame   # 再等一帧，让 _process 真正处理这次按下
+	print("[自检] F2 → dbg: 动作按下=%s  几何开关=%s" % [
+		str(Input.is_action_pressed("dbg")), str(_debug_geo)])
+	var key_up := InputEventKey.new()
+	key_up.physical_keycode = KEY_F2
+	key_up.pressed = false
+	Input.parse_input_event(key_up)
+
 	Input.action_press("move_right")
 	await get_tree().create_timer(0.5).timeout
 	Input.action_release("move_right")
@@ -254,7 +193,7 @@ func _run_selftest() -> void:
 	for i in 24:
 		await get_tree().physics_frame
 		apex = minf(apex, player.position.y)
-	print("[自检] 跳跃顶点: 上升 %.1f px（规格 36）" % (y0 - apex))
+	print("[自检] 跳跃顶点: 上升 %.1f px（规格 36）" % [y0 - apex])
 
 	await get_tree().create_timer(0.9).timeout
 	print("[自检] 落回: pos=(%.1f, %.1f)  贴地=%s" % [player.position.x, player.position.y, player.is_on_floor()])

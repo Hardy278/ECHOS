@@ -56,6 +56,26 @@ void fragment() {
 	float band = texture(band_tex, UV).r;
 	float absorb = texture(mat_tex, UV).g;
 
+	// 表面带画在**实体内侧**，而场在实体内部恒为 0；
+	// 所以带上的格子取 3x3 邻域最大值，显示"贴着墙的那圈空气"的振幅。
+	if (band > 0.5) {
+		vec2 opx = 1.0 / field_size;
+		float mh = 0.0;
+		float ml = 0.0;
+		float ms = 0.0;
+		for (int dy = -1; dy <= 1; dy++) {
+			for (int dx = -1; dx <= 1; dx++) {
+				vec2 off = vec2(float(dx), float(dy)) * opx;
+				mh = max(mh, texture(field_hb, UV + off).b);
+				ml = max(ml, texture(field_land, UV + off).b);
+				ms = max(ms, texture(field_shout, UV + off).b);
+			}
+		}
+		eh = mh;
+		el = ml;
+		es = ms;
+	}
+
 	vec2 pos = UV * field_size;
 	float d = distance(pos, listener_px);
 	float fh = fall(d, rf_hb);
