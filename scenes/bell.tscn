@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://deeake3ms2rua"]
+
+[ext_resource type="Script" uid="uid://dof8r5qmlints" path="res://scripts/object/bell.gd" id="1_bell"]
+[ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="2_echo"]
+[ext_resource type="Script" uid="uid://cbwf5gq8rudy1" path="res://scripts/object/abilities/periodic_ability.gd" id="3_tick"]
+[ext_resource type="Texture2D" uid="uid://bash1ly7f2j44" path="res://sprites/bell.png" id="4_sprite"]
+
+[node name="Bell" type="Node2D" unique_id=986843742]
+script = ExtResource("1_bell")
+
+[node name="Sprite" type="Sprite2D" parent="." unique_id=88166516]
+texture_filter = 1
+texture = ExtResource("4_sprite")
+
+[node name="EchoSource" type="Node2D" parent="." unique_id=449883072]
+script = ExtResource("2_echo")
+damp = 0.98
+emit_radius = 12.0
+mask_span = 50.0
+tint = Color(1, 0.78, 0.35, 1)
+gain = 1.4
+
+[node name="Tick" type="Node" parent="EchoSource" unique_id=1083913178]
+script = ExtResource("3_tick")
+amp = 0.4

@@ -1,11 +1,47 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://beerwoiqyy3ws"]
 
-[ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" uid="uid://crawlthrqa610" path="res://scripts/object/player.gd" id="1_player"]
+[ext_resource type="Script" uid="uid://c0w4xxxunx8qa" path="res://scripts/object/grass_trample.gd" id="3_grass"]
+[ext_resource type="Script" uid="uid://cbwf5gq8rudy1" path="res://scripts/object/abilities/periodic_ability.gd" id="4_hb"]
+[ext_resource type="Script" uid="uid://cqback518c0u2" path="res://scripts/object/abilities/landing_ability.gd" id="5_land"]
+[ext_resource type="Script" uid="uid://bfreja5uljpx" path="res://scripts/object/abilities/shout_ability.gd" id="6_shout"]
+[ext_resource type="Texture2D" uid="uid://c48d1emsdr2iu" path="res://sprites/player.png" id="7_sprite"]
+[ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="8_echo"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(10, 16)
 
-[node name="Player" type="CharacterBody2D"]
+[node name="Player" type="CharacterBody2D" unique_id=1322106864]
 script = ExtResource("1_player")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=771324102]
 shape = SubResource("RectangleShape2D_body")
+
+[node name="Sprite" type="Sprite2D" parent="." unique_id=1799049040]
+texture_filter = 1
+texture = ExtResource("7_sprite")
+
+[node name="Echo" type="Node2D" parent="." unique_id=1623754491]
+script = ExtResource("8_echo")
+damp = 0.97
+emit_radius = 16.0
+tint = Color(0.8799364, 0.7892666, 0.5208506, 1)
+
+[node name="Heartbeat" type="Node" parent="Echo" unique_id=1678985544]
+script = ExtResource("4_hb")
+amp = 0.045
+falloff = 2.4
+
+[node name="Landing" type="Node" parent="Echo" unique_id=679542595]
+script = ExtResource("5_land")
+amp = 0.1
+falloff = 1.9
+
+[node name="Shout" type="Node" parent="Echo" unique_id=506087389]
+script = ExtResource("6_shout")
+amp = 0.3
+cooldown = 1.5
+falloff = 1.7
+
+[node name="GrassTrample" type="Node2D" parent="." unique_id=1353151571]
+script = ExtResource("3_grass")

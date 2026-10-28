@@ -1,6 +1,34 @@
 [gd_resource type="TileSet" format=3 uid="uid://dqm0chntm42cb"]
 
 [ext_resource type="Texture2D" uid="uid://cjeur7tvr5v1h" path="res://tiles/tileset_8.png" id="1_bruia"]
+[ext_resource type="Texture2D" uid="uid://cd07xmv78e1rg" path="res://tiles/water_8.png" id="1_hm5x3"]
+[ext_resource type="Texture2D" uid="uid://duash2vjt6pi6" path="res://tiles/water_surface_anim_8.png" id="2_r30xe"]
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_r30xe"]
+texture = ExtResource("1_hm5x3")
+texture_region_size = Vector2i(8, 8)
+0:0/0 = 0
+0:0/0/custom_data_0 = 1.33
+0:0/0/custom_data_2 = 1.0
+1:0/0 = 0
+1:0/0/custom_data_0 = 1.33
+1:0/0/custom_data_2 = 1.0
+2:0/0 = 0
+2:0/0/custom_data_0 = 1.33
+2:0/0/custom_data_2 = 1.0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_vm1us"]
+texture = ExtResource("2_r30xe")
+texture_region_size = Vector2i(8, 8)
+0:0/animation_columns = 4
+0:0/animation_speed = 6.0
+0:0/animation_frame_0/duration = 1.0
+0:0/animation_frame_1/duration = 1.0
+0:0/animation_frame_2/duration = 1.0
+0:0/animation_frame_3/duration = 1.0
+0:0/0 = 0
+0:0/0/custom_data_0 = 1.33
+0:0/0/custom_data_2 = 1.0
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_hm5x3"]
 texture = ExtResource("1_bruia")
@@ -28,12 +56,15 @@ texture_region_size = Vector2i(8, 8)
 0:2/0 = 0
 0:2/0/physics_layer_0/polygon_0/points = PackedVector2Array(-4, -4, 4, -4, 4, -2, -4, -2)
 0:2/0/physics_layer_0/polygon_0/one_way = true
+0:2/0/custom_data_2 = 0.3
 1:2/0 = 0
 1:2/0/physics_layer_0/polygon_0/points = PackedVector2Array(-4, -4, 4, -4, 4, -2, -4, -2)
 1:2/0/physics_layer_0/polygon_0/one_way = true
+1:2/0/custom_data_2 = 0.3
 2:2/0 = 0
 2:2/0/physics_layer_0/polygon_0/points = PackedVector2Array(-4, -4, 4, -4, 4, -2, -4, -2)
 2:2/0/physics_layer_0/polygon_0/one_way = true
+2:2/0/custom_data_2 = 0.3
 3:2/0 = 0
 3:2/0/physics_layer_0/polygon_0/points = PackedVector2Array(-4, -4, 4, -4, 4, 4, -4, 4)
 4:2/0 = 0
@@ -71,4 +102,12 @@ texture_region_size = Vector2i(8, 8)
 tile_size = Vector2i(8, 8)
 physics_layer_0/collision_layer = 1
 physics_layer_0/collision_mask = 0
+custom_data_layer_0/name = "ior"
+custom_data_layer_0/type = 3
+custom_data_layer_1/name = "absorb"
+custom_data_layer_1/type = 3
+custom_data_layer_2/name = "transmit"
+custom_data_layer_2/type = 3
 sources/2 = SubResource("TileSetAtlasSource_hm5x3")
+sources/0 = SubResource("TileSetAtlasSource_r30xe")
+sources/1 = SubResource("TileSetAtlasSource_vm1us")
