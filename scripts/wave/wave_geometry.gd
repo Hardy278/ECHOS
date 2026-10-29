@@ -19,6 +19,7 @@ extends Node
 
 const GEO_SHADER := preload("res://shaders/geo_tile.gdshader")
 const BAND_SHADER := preload("res://shaders/band.gdshader")
+const BODY_SHADER := preload("res://shaders/geo_body.gdshader")
 const DEFAULT_ONE_WAY_ABSORB := 0.20
 const MAX_BAND_PX := 4
 
@@ -31,8 +32,10 @@ var _canvas: Node2D
 var _band_vp: SubViewport
 var _band_mat: ShaderMaterial
 var _mirrors: Dictionary = {}      # {图层下标: {source_id: TileMapLayer}}
+var _bodies: Dictionary = {}       # AcousticBody → Sprite2D（画在几何视口里的声学形状）
 var _atlas_cache: Dictionary = {}  # source_id → 参数图
 var _mat_cache: Dictionary = {}    # source_id → 材质
+var _white: Texture2D              # 没有贴图时当矩形用的白点
 var _dirty := false
 
 
@@ -53,6 +56,7 @@ func _process(_delta: float) -> void:
 	if _dirty:
 		_dirty = false
 		rebuild()
+	_sync_bodies()
 
 
 # ---------------------------------------------------------------- 对外
@@ -68,6 +72,129 @@ func band_texture() -> Texture2D:
 ## 图块有改动，下一帧重画镜像层
 func request_sync() -> void:
 	_dirty = true
+
+
+## 换房间：镜像层整批作废，换成新房间的三层图块。
+## 视口和表面带那张纹理不重建——对象一直是同一个，只是内容换了。
+func rebind(layers: Array) -> void:
+	_drop_mirrors()
+	_atlas_cache.clear()      # 万一换了 TileSet，参数图必须重做
+	_mat_cache.clear()
+	_layers = layers
+	band_px = _derive_band_px()
+	if _band_mat != null:
+		_band_mat.set_shader_parameter("band_px", band_px)
+	rebuild()
+
+
+## 镜像层是画在几何视口里的副本，换房间时整批扔掉
+func _drop_mirrors() -> void:
+	for per_src in _mirrors.values():
+		for m in per_src.values():
+			var node := m as Node
+			if is_instance_valid(node):
+				if _canvas != null:
+					_canvas.remove_child(node)
+				node.queue_free()
+	_mirrors.clear()
+
+
+# ---------------------------------------------------------------- 实体的声学形状
+
+## 实体不是图块，所以它们的"声学形状"每帧现摆：把实体自己的贴图复制成一面镜子
+## 画进几何视口，位置直接跟实体走。会动的实体因此也有声音形状。
+func _sync_bodies() -> void:
+	if _canvas == null:
+		return
+	for n in get_tree().get_nodes_in_group("acoustic_bodies"):
+		var body := n as AcousticBody
+		if body == null:
+			continue
+		var mirror := _bodies.get(body) as Sprite2D
+		if mirror == null or not is_instance_valid(mirror):
+			mirror = _make_body()
+			_bodies[body] = mirror
+		_pose_body(body, mirror)
+	_sweep_bodies()
+
+
+func _make_body() -> Sprite2D:
+	var s := Sprite2D.new()
+	s.name = "body"
+	s.z_index = 3               # 画在图块层之上：实体压过地形
+	var m := ShaderMaterial.new()
+	m.shader = BODY_SHADER
+	s.material = m
+	_canvas.add_child(s)
+	return s
+
+
+## 形状 = 实体贴图（含动画当前帧）；没贴图就退回矩形
+func _pose_body(body: AcousticBody, mirror: Sprite2D) -> void:
+	var vis := body.visual_node()
+	if vis is AnimatedSprite2D:
+		var a := vis as AnimatedSprite2D
+		var frames := a.sprite_frames
+		mirror.texture = frames.get_frame_texture(a.animation, a.frame) if frames != null else null
+		mirror.hframes = 1
+		mirror.vframes = 1
+		mirror.region_enabled = false
+		mirror.centered = a.centered
+		mirror.offset = a.offset
+		mirror.flip_h = a.flip_h
+		mirror.flip_v = a.flip_v
+		mirror.global_transform = a.global_transform
+	elif vis is Sprite2D:
+		var s := vis as Sprite2D
+		mirror.texture = s.texture
+		mirror.hframes = s.hframes
+		mirror.vframes = s.vframes
+		mirror.frame = s.frame
+		mirror.region_enabled = s.region_enabled
+		mirror.region_rect = s.region_rect
+		mirror.centered = s.centered
+		mirror.offset = s.offset
+		mirror.flip_h = s.flip_h
+		mirror.flip_v = s.flip_v
+		mirror.global_transform = s.global_transform
+	else:
+		mirror.texture = _white_tex()
+		mirror.hframes = 1
+		mirror.vframes = 1
+		mirror.region_enabled = false
+		mirror.centered = true
+		mirror.offset = Vector2.ZERO
+		mirror.flip_h = false
+		mirror.flip_v = false
+		mirror.global_transform = body.global_transform \
+				* Transform2D(0.0, body.rect_size, 0.0, Vector2.ZERO)
+
+	var m := mirror.material as ShaderMaterial
+	if m != null:
+		m.set_shader_parameter("absorb", body.absorb)
+		m.set_shader_parameter("ior", body.ior)
+		m.set_shader_parameter("transmit", body.transmit)
+
+
+## 实体被销毁（房间换了）就把它的镜子摘掉
+func _sweep_bodies() -> void:
+	for b in _bodies.keys():
+		var mirror := _bodies[b] as Node
+		if is_instance_valid(b) and is_instance_valid(mirror):
+			continue
+		if is_instance_valid(mirror):
+			if _canvas != null:
+				_canvas.remove_child(mirror)
+			mirror.queue_free()
+		_bodies.erase(b)
+
+
+func _white_tex() -> Texture2D:
+	if _white == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		img.fill(Color(1, 1, 1, 1))
+		_white = ImageTexture.create_from_image(img)
+	return _white
 
 
 # ---------------------------------------------------------------- 装配

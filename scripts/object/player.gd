@@ -15,6 +15,9 @@ signal landed(strength: float)
 ## 角色动态下落速度
 var _fall_speed := 0.0
 
+func _enter_tree() -> void:
+	add_to_group("player")     # RoomSystem 找它判边界
+
 func _physics_process(delta: float) -> void:
 	var ix := Input.get_axis("move_left", "move_right")
 	velocity.x = ix * speed

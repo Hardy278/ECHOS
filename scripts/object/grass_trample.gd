@@ -30,7 +30,13 @@ var _dirty := false
 
 func _ready() -> void:
 	_player = get_parent() as Node2D
-	# 自己找出场景里所有的 TileMapLayer，不依赖外部装配
+	_refresh_layers()
+
+
+## 房间会换、图块层会整批重建，所以不能只在 _ready 时抓一次
+func _refresh_layers() -> void:
+	_playing.clear()
+	_layers.clear()
 	var root := get_tree().current_scene
 	if root == null:
 		root = get_tree().root
@@ -38,9 +44,20 @@ func _ready() -> void:
 		_layers.append(n)
 
 
+func _layers_alive() -> bool:
+	if _layers.is_empty():
+		return false
+	for l in _layers:
+		if not is_instance_valid(l):
+			return false
+	return true
+
+
 func _process(delta: float) -> void:
 	if _player == null:
 		return
+	if not _layers_alive():
+		_refresh_layers()
 	_trigger_under_player()
 	_advance(delta)
 	# 换过帧就通知世界几何重画：不依赖外部装配，没有几何节点也不报错

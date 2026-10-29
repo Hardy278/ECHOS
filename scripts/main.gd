@@ -7,6 +7,7 @@ extends Node2D
 @onready var camera: Camera2D = $Camera
 @onready var hud: Label = $Hud/Label
 @onready var world: EchoWorld = get_node_or_null("EchoWorld") as EchoWorld
+@onready var rooms: RoomSystem = get_node_or_null("Rooms") as RoomSystem
 
 
 func _ready() -> void:
@@ -22,7 +23,8 @@ func _process(_delta: float) -> void:
 
 
 func _update_hud() -> void:
+	var where: String = rooms.describe() if rooms != null else "房间 —"
 	var cd: float = shout_ability.cooldown_left()
 	var cd_txt: String = "可发声" if cd <= 0.0 else "冷却 %.1fs" % cd
 	var info: String = world.debug_line() if world != null else ""
-	hud.text = "A/D 移动  空格 跳  左键/Q 发声\n%s\n%s" % [cd_txt, info]
+	hud.text = "A/D 移动  空格 跳  左键/Q 发声\n%s\n%s\n%s" % [where, cd_txt, info]
