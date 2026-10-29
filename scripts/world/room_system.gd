@@ -32,6 +32,10 @@ const EDGE_MARGIN := 1.0
 var current: Room
 var current_coord := Vector2i.ZERO
 
+## 最后一个踩过的检查点：{ coord: Vector2i, pos: Vector2 }。
+## 出生点就是第 0 个，所以永远不会空。
+var checkpoint: Dictionary = {}
+
 var _rooms: Dictionary = {}      # Vector2i → PackedScene
 var _states: Dictionary = {}     # Vector2i → { state_id: 快照 }
 var _world: Node                 # EchoWorld
@@ -90,7 +94,34 @@ func begin(coord: Vector2i) -> void:
 	_bind(current)
 	_restore_state(current)
 	_push_room_state()
+	# 出生点就是第 0 个检查点：一个都没踩过也有地方回
+	if checkpoint.is_empty() and player != null:
+		checkpoint = {"coord": coord, "pos": player.global_position}
 	room_changed.emit(current)
+
+
+## 检查点踩到：记下"最后一个"。跨房间也能回来，因为记的是房间坐标 + 房内位置。
+func set_checkpoint(coord: Vector2i, pos: Vector2) -> void:
+	checkpoint = {"coord": coord, "pos": pos}
+
+
+## 回到最后一个踩过的检查点。同房间是纯传送，跨房间走 _enter。
+func respawn() -> bool:
+	if player == null or checkpoint.is_empty():
+		push_warning("RoomSystem: 没有可用的检查点")
+		return false
+	var coord: Vector2i = checkpoint["coord"]
+	var pos: Vector2 = checkpoint["pos"]
+	if coord != current_coord:
+		return _enter(coord, pos)
+	player.global_position = pos
+	player.velocity = Vector2.ZERO
+	_clamp_inside()
+	# 旧位置的余晖不该跟过来
+	var src := _player_source()
+	if src != null and src.has_method("clear_field"):
+		src.call("clear_field")
+	return true
 
 
 # ---------------------------------------------------------------- 边界
@@ -117,19 +148,31 @@ func _physics_process(_delta: float) -> void:
 
 func _cross(dir: Vector2i) -> void:
 	var target := current_coord + dir
-	var scene := _scene_at(target)
-	if scene == null:
+	if _scene_at(target) == null:
 		_push_back(dir)      # 这条边是世界的尽头
 		return
-
-	_busy = true
-	_save_state(current)
 
 	# 抄下正在穿出去的那一薄片：场还没清，这时读到的正好是"刚穿过门口"的时刻
 	var src := _player_source()
 	var slab: Texture2D = null
 	if src != null and src.has_method("capture_slab"):
 		slab = src.call("capture_slab", dir) as Texture2D
+
+	# 位置连续：右出 → 新房间左侧同高度（越界了多少就带过去多少）
+	_enter(target, player.global_position - Vector2(dir) * SIZE, dir, slab)
+
+
+## 搬进另一个房间：换房、搬玩家、清场、重绑。切房和复活共用这一段。
+## dir / slab 只有穿门时才有：那一薄片声场要跟着人过来。
+func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
+		slab: Texture2D = null) -> bool:
+	var scene := _scene_at(coord)
+	if scene == null:
+		push_error("RoomSystem: 没有坐标 %s 的房间" % coord)
+		return false
+
+	_busy = true
+	_save_state(current)
 
 	# 先拔旧房间：它的碰撞和图块立刻离场，避免和新房间重叠一帧
 	var old := current
@@ -138,10 +181,9 @@ func _cross(dir: Vector2i) -> void:
 		remove_child(old)
 		old.queue_free()
 
-	var room := _spawn(target, scene)
+	var room := _spawn(coord, scene)
 
-	# 位置连续：右出 → 新房间左侧同高度（越界了多少就带过去多少）
-	player.global_position -= Vector2(dir) * SIZE
+	player.global_position = player_pos
 	_clamp_inside()
 
 	# 清场：旧房间的墙形反射和残余不能跟过来
@@ -151,14 +193,17 @@ func _cross(dir: Vector2i) -> void:
 	_restore_state(room)
 
 	# 定场：把门口那一薄片写进新房间的入口侧，让刚才那一声跟着进来
-	if slab != null and src != null and src.has_method("seed_slab"):
-		src.call("seed_slab", slab, dir)
+	if slab != null and dir != Vector2i.ZERO:
+		var src := _player_source()
+		if src != null and src.has_method("seed_slab"):
+			src.call("seed_slab", slab, dir)
 
 	current = room
-	current_coord = target
+	current_coord = coord
 	_busy = false
 	_push_room_state()
 	room_changed.emit(room)
+	return true
 
 
 func _push_back(dir: Vector2i) -> void:

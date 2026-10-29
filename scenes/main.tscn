@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://beerwoiqyy3ws" path="res://scenes/player.tscn" id="2_player"]
 [ext_resource type="Script" uid="uid://cro46mue31skq" path="res://scripts/wave/echo_world.gd" id="4_world"]
 [ext_resource type="Script" uid="uid://dmth4ijuiokko" path="res://scripts/world/room_system.gd" id="5_rooms"]
+[ext_resource type="Script" path="res://scripts/world/water.gd" id="6_water"]
 
 [node name="Main" type="Node2D" unique_id=802096083]
 script = ExtResource("1_main")
@@ -33,3 +34,6 @@ script = ExtResource("4_world")
 [node name="Rooms" type="Node2D" parent="." unique_id=1957283041]
 script = ExtResource("5_rooms")
 player = NodePath("../Player")
+
+[node name="Water" type="Node2D" parent="."]
+script = ExtResource("6_water")

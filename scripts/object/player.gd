@@ -37,8 +37,11 @@ func _physics_process(delta: float) -> void:
 ## 角色存在时间, 基于此算角色的呼吸感.
 var _t := 0.0
 
+@onready var _sprite: Sprite2D = $Sprite
+
 func _process(delta: float) -> void:
-	# 心跳微光
+	# 心跳微光。写在 Sprite 上而不是自己身上：自己的 modulate 留给溺水淡出，
+	# 两个透明度相乘，互不覆盖。
 	_t += delta
 	var pulse := 0.35 + 0.25 * (0.5 + 0.5 * sin(_t * TAU * 1.0))
-	modulate = Color(1.0, 1.0, 1.0, pulse)
+	_sprite.modulate = Color(1.0, 1.0, 1.0, pulse)
