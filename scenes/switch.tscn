@@ -1,0 +1,34 @@
+[gd_scene format=3 uid="uid://drcpu6xgm35uh"]
+
+[ext_resource type="Script" uid="uid://73ilsussw05d" path="res://scripts/object/switch.gd" id="1_switch"]
+[ext_resource type="Script" uid="uid://ldn7840l42f8" path="res://scripts/wave/acoustic_body.gd" id="2_body"]
+[ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="3_echo"]
+[ext_resource type="Texture2D" uid="uid://cl6btdb0ospfu" path="res://tiles/door_and_buttom.png" id="4_art"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_touch"]
+size = Vector2(16, 16)
+
+[node name="Switch" type="Area2D" unique_id=484367107]
+collision_layer = 0
+script = ExtResource("1_switch")
+
+[node name="Sprite" type="Sprite2D" parent="." unique_id=1436252758]
+texture_filter = 1
+scale = Vector2(2, 2)
+texture = ExtResource("4_art")
+region_enabled = true
+region_rect = Rect2(16, 48, 8, 8)
+
+[node name="Shape" type="CollisionShape2D" parent="." unique_id=81129446]
+shape = SubResource("RectangleShape2D_touch")
+
+[node name="Body" type="Node2D" parent="." unique_id=1768094466]
+script = ExtResource("2_body")
+visual = NodePath("../Sprite")
+
+[node name="EchoSource" type="Node2D" parent="." unique_id=2057974341]
+script = ExtResource("3_echo")
+damp = 0.97
+env_decay = 0.96
+mask_span = 40.0
+tint = Color(0.7, 1, 0.8, 1)
