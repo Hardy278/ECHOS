@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://cfsch8am7iraf" path="res://scripts/world/checkpoint.gd" id="3_cp"]
 [ext_resource type="PackedScene" uid="uid://deeake3ms2rua" path="res://scenes/bell.tscn" id="4_7allg"]
 [ext_resource type="PackedScene" path="res://scenes/sound_door.tscn" id="5_tbrea"]
+[ext_resource type="PackedScene" path="res://scenes/shooter.tscn" id="6_ub4w0"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_cp"]
 size = Vector2(16, 175.5)
@@ -37,9 +38,19 @@ position = Vector2(137, 178)
 
 [node name="SoundDoor" parent="." unique_id=2140641585 instance=ExtResource("5_tbrea")]
 position = Vector2(408, 184)
+threshold = 0.28
 id = &"r1_0.gate1"
 
 [node name="SoundDoor2" parent="." unique_id=1327861530 instance=ExtResource("5_tbrea")]
 position = Vector2(424, 56)
-threshold = 100.0
+threshold = 0.8
 id = &"r1_0.gate2"
+
+[node name="Shooter" parent="." unique_id=1372505707 instance=ExtResource("6_ub4w0")]
+position = Vector2(200, 56)
+max_speed = 350.0
+dash_time = 3.0
+
+[node name="SoundDoor3" parent="." unique_id=505764549 instance=ExtResource("5_tbrea")]
+position = Vector2(232, 40)
+id = &"r1_0.gate13"

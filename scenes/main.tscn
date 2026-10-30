@@ -4,13 +4,13 @@
 [ext_resource type="PackedScene" uid="uid://beerwoiqyy3ws" path="res://scenes/player.tscn" id="2_player"]
 [ext_resource type="Script" uid="uid://cro46mue31skq" path="res://scripts/wave/echo_world.gd" id="4_world"]
 [ext_resource type="Script" uid="uid://dmth4ijuiokko" path="res://scripts/world/room_system.gd" id="5_rooms"]
-[ext_resource type="Script" path="res://scripts/world/water.gd" id="6_water"]
+[ext_resource type="Script" uid="uid://b7xjx0xemfb25" path="res://scripts/world/water.gd" id="6_water"]
 
 [node name="Main" type="Node2D" unique_id=802096083]
 script = ExtResource("1_main")
 
 [node name="Player" parent="." unique_id=1878595084 instance=ExtResource("2_player")]
-position = Vector2(237, 229)
+position = Vector2(242, 217)
 speed = 90.0
 
 [node name="Hud" type="CanvasLayer" parent="." unique_id=886718907]
@@ -35,5 +35,5 @@ script = ExtResource("4_world")
 script = ExtResource("5_rooms")
 player = NodePath("../Player")
 
-[node name="Water" type="Node2D" parent="."]
+[node name="Water" type="Node2D" parent="." unique_id=691514747]
 script = ExtResource("6_water")

@@ -35,11 +35,12 @@ falloff = 2.4
 
 [node name="Landing" type="Node" parent="Echo" unique_id=679542595]
 script = ExtResource("5_land")
-amp = 0.15
+amp = 0.1
+falloff = 1.9
 
 [node name="Shout" type="Node" parent="Echo" unique_id=506087389]
 script = ExtResource("6_shout")
-amp = 0.3
+amp = 0.2
 cooldown = 1.5
 falloff = 1.7
 
