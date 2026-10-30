@@ -2,9 +2,9 @@
 
 [ext_resource type="Script" uid="uid://dt8o0apq3l7n" path="res://scripts/world/room.gd" id="1_room"]
 [ext_resource type="TileSet" uid="uid://dqm0chntm42cb" path="res://tiles/tileset.tres" id="2_sugp2"]
-[ext_resource type="PackedScene" path="res://scenes/switch.tscn" id="4_7dyj2"]
+[ext_resource type="PackedScene" uid="uid://drcpu6xgm35uh" path="res://scenes/switch.tscn" id="4_7dyj2"]
 [ext_resource type="Script" uid="uid://cfsch8am7iraf" path="res://scripts/world/checkpoint.gd" id="4_cp"]
-[ext_resource type="PackedScene" path="res://scenes/door.tscn" id="5_uk54w"]
+[ext_resource type="PackedScene" uid="uid://b4jbqdsae77fd" path="res://scenes/door.tscn" id="5_uk54w"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_cp"]
 size = Vector2(16, 74)
@@ -49,5 +49,5 @@ channel = &"r0_0.sw2"
 
 [node name="Door" parent="." unique_id=1959933603 instance=ExtResource("5_uk54w")]
 position = Vector2(456, 104)
-id = &"r0_0.gate1"
 channels = Array[StringName]([&"r0_0.sw1", &"r0_0.sw2"])
+id = &"r0_0.gate1"

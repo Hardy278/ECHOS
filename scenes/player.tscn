@@ -7,7 +7,7 @@
 [ext_resource type="Script" uid="uid://bfreja5uljpx" path="res://scripts/object/abilities/shout_ability.gd" id="6_shout"]
 [ext_resource type="Texture2D" uid="uid://c48d1emsdr2iu" path="res://sprites/player.png" id="7_sprite"]
 [ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="8_echo"]
-[ext_resource type="Script" path="res://scripts/object/abilities/drown_ability.gd" id="9_drown"]
+[ext_resource type="Script" uid="uid://b2itgoxi5cndx" path="res://scripts/object/abilities/drown_ability.gd" id="9_drown"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
 size = Vector2(10, 16)
@@ -35,8 +35,7 @@ falloff = 2.4
 
 [node name="Landing" type="Node" parent="Echo" unique_id=679542595]
 script = ExtResource("5_land")
-amp = 0.1
-falloff = 1.9
+amp = 0.15
 
 [node name="Shout" type="Node" parent="Echo" unique_id=506087389]
 script = ExtResource("6_shout")
@@ -44,7 +43,7 @@ amp = 0.3
 cooldown = 1.5
 falloff = 1.7
 
-[node name="Drown" type="Node" parent="Echo"]
+[node name="Drown" type="Node" parent="Echo" unique_id=1114452252]
 script = ExtResource("9_drown")
 amp = 0.2
 steps = 2

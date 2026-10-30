@@ -1,0 +1,55 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/object/sound_door.gd" id="1_door"]
+[ext_resource type="Script" uid="uid://ldn7840l42f8" path="res://scripts/wave/acoustic_body.gd" id="2_body"]
+[ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="3_echo"]
+[ext_resource type="Texture2D" uid="uid://cl6btdb0ospfu" path="res://tiles/door_and_buttom.png" id="4_art"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_top"]
+size = Vector2(16, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_panel"]
+size = Vector2(16, 32)
+
+[node name="SoundDoor" type="StaticBody2D"]
+script = ExtResource("1_door")
+
+[node name="Top" type="Sprite2D" parent="."]
+texture_filter = 1
+position = Vector2(0, -16)
+scale = Vector2(2, 2)
+texture = ExtResource("4_art")
+region_enabled = true
+region_rect = Rect2(16, 16, 8, 8)
+
+[node name="Panel" type="Sprite2D" parent="."]
+texture_filter = 1
+position = Vector2(0, 8)
+scale = Vector2(2, 2)
+texture = ExtResource("4_art")
+region_enabled = true
+region_rect = Rect2(17, 24, 6, 16)
+
+[node name="TopShape" type="CollisionShape2D" parent="."]
+position = Vector2(0, -16)
+shape = SubResource("RectangleShape2D_top")
+
+[node name="PanelShape" type="CollisionShape2D" parent="."]
+position = Vector2(0, 8)
+shape = SubResource("RectangleShape2D_panel")
+
+[node name="TopBody" type="Node2D" parent="."]
+script = ExtResource("2_body")
+visual = NodePath("../Top")
+transmit = 0.9
+
+[node name="PanelBody" type="Node2D" parent="."]
+script = ExtResource("2_body")
+visual = NodePath("../Panel")
+transmit = 0.9
+
+[node name="EchoSource" type="Node2D" parent="."]
+script = ExtResource("3_echo")
+damp = 0.97
+mask_span = 116.0
+tint = Color(1, 0.84, 0.6, 1)
