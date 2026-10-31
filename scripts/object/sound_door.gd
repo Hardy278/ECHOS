@@ -26,7 +26,6 @@ extends DoorBase
 ## 多少物理帧采一次：B 的半衰 0.34 s，10 Hz 足够，也躲开频繁读回的开销
 @export var sample_every := 6
 
-var _src: EchoSource
 var _tick := 0
 var _bars: Array[Sprite2D] = []
 var _bar_bodies: Array[AcousticBody] = []
@@ -41,7 +40,6 @@ func _ready() -> void:
 	super._ready()
 	_build_bars()
 	restore_open_state()
-	_src = _find_player_source()
 
 
 func _physics_process(delta: float) -> void:
@@ -62,10 +60,6 @@ func _physics_process(delta: float) -> void:
 	_tick += 1
 	if _tick % maxi(sample_every, 1) != 0:
 		return
-	if _src == null or not is_instance_valid(_src):
-		_src = _find_player_source()
-		if _src == null:
-			return
 
 	var v := _sensed()
 	# 线性：条长直接跟感知到的强度成正比，满格 = threshold。
@@ -132,17 +126,6 @@ func _set_bar(h: float) -> void:
 		b.position.y = _bar_bottom - h
 
 
-## 只认玩家的声音：沿父链找带 player 组的那个实体（Player/Echo）
-func _find_player_source() -> EchoSource:
-	for s in get_tree().get_nodes_in_group("echo_sources"):
-		var n: Node = (s as Node).get_parent()
-		while n != null:
-			if n.is_in_group("player"):
-				return s as EchoSource
-			n = n.get_parent()
-	return null
-
-
 ## 门外 4 px 的四个点：左右两面 × 上下两格。
 ## ring_side 本来就是"门心到面外空气"的距离，和开门那两声用的是同一个数。
 func _sense_points() -> Array[Vector2]:
@@ -154,24 +137,10 @@ func _sense_points() -> Array[Vector2]:
 	return pts
 
 
-## 场里 B 通道在这些点上的最大值。取 3×3 邻域，免得正好落在驻波节点上读到 0。
+## 场里 B 通道在这些点上的最大值（取 3×3 邻域，免得正好落在驻波节点上读到 0）。
+## 读回由 SoundSampler 统一做，这里只查缓存——门和草共用同一份采样。
 func _sensed() -> float:
-	var pts := _sense_points()
-	var tex := _src.field_texture()
-	if tex == null:
-		return 0.0
-	var img := tex.get_image()
-	if img == null:
-		return 0.0
-
-	var w := img.get_width()
-	var h := img.get_height()
 	var best := 0.0
-	for p in pts:
-		var cx := clampi(int(p.x), 0, w - 1)
-		var cy := clampi(int(p.y), 0, h - 1)
-		for dy in [-1, 0, 1]:
-			for dx in [-1, 0, 1]:
-				best = maxf(best, img.get_pixel(
-						clampi(cx + dx, 0, w - 1), clampi(cy + dy, 0, h - 1)).b)
+	for p in _sense_points():
+		best = maxf(best, SoundSampler.envelope_max(p))
 	return best

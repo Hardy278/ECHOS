@@ -11,8 +11,11 @@ extends CharacterBody2D
 
 signal landed(strength: float)
 
+const GameConst := preload("res://scripts/world/constants.gd")
+
 @export var speed := 70.0           ## 水平走速（单位/秒）
-@export var gravity := 900.0        ## 重力加速度（单位/秒²）
+@export var gravity := GameConst.GRAVITY  ## 重力加速度（单位/秒²）；全局唯一一份，见 GameConst
+@export var mass := GameConst.PLAYER_MASS ## 质量。只用来和别的物体分撞击速度，不影响下落
 @export var jump_velocity := 254.5  ## 起跳初速
 @export var coyote_time := 0.1      ## 土狼时间：走出平台边缘后还能起跳的宽限（秒）
 @export var dash_amp := 0.8         ## 激波推进时的发声强度（再乘 实际速度/末速）

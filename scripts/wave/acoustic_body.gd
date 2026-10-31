@@ -1,5 +1,5 @@
 class_name AcousticBody
-extends Node2D
+extends AcousticShape
 
 ## 挂在一个实体上：让它的**贴图轮廓**成为声场里的实体。
 ##
@@ -15,16 +15,6 @@ extends Node2D
 @export var visual: CanvasItem
 ## 找不到贴图时退回的矩形尺寸（世界单位）；有贴图时忽略
 @export var rect_size := Vector2(16, 16)
-## 吸声性：越大越不留本体（显示端用它压暗）
-@export_range(0.0, 1.0) var absorb := 0.0
-## 折射率：1 = 空气，越大声速越慢
-@export_range(1.0, 4.0) var ior := 1.0
-## 透声性：0 = 完全挡住声音，1 = 只留形状（声音照穿，内部也会被照亮）
-@export_range(0.0, 1.0) var transmit := 0.0
-
-
-func _enter_tree() -> void:
-	add_to_group("acoustic_bodies")
 
 
 ## 拿形状来源：显式指定的那个，或者实体（父节点）子树里第一个 Sprite / AnimatedSprite
@@ -40,3 +30,61 @@ func visual_node() -> CanvasItem:
 	for n in root.find_children("*", "AnimatedSprite2D", true, false):
 		return n as CanvasItem
 	return null
+
+
+func build_mirror() -> CanvasItem:
+	var s := Sprite2D.new()
+	s.name = "body"
+	s.z_index = 3               # 画在图块层之上：实体压过地形
+	return s
+
+
+## 形状 = 实体贴图（含动画当前帧）；没贴图就退回矩形
+func pose_mirror(mirror: CanvasItem) -> void:
+	var m := mirror as Sprite2D
+	if m == null:
+		return
+	var vis := visual_node()
+	if vis is AnimatedSprite2D:
+		var a := vis as AnimatedSprite2D
+		var frames := a.sprite_frames
+		m.texture = frames.get_frame_texture(a.animation, a.frame) if frames != null else null
+		m.hframes = 1
+		m.vframes = 1
+		m.region_enabled = false
+		m.centered = a.centered
+		m.offset = a.offset
+		m.flip_h = a.flip_h
+		m.flip_v = a.flip_v
+		m.global_transform = a.global_transform
+	elif vis is Sprite2D:
+		var s := vis as Sprite2D
+		m.texture = s.texture
+		m.hframes = s.hframes
+		m.vframes = s.vframes
+		m.frame = s.frame
+		m.region_enabled = s.region_enabled
+		m.region_rect = s.region_rect
+		m.centered = s.centered
+		m.offset = s.offset
+		m.flip_h = s.flip_h
+		m.flip_v = s.flip_v
+		m.global_transform = s.global_transform
+	else:
+		m.texture = _white_tex()
+		m.hframes = 1
+		m.vframes = 1
+		m.region_enabled = false
+		m.centered = true
+		m.offset = Vector2.ZERO
+		m.flip_h = false
+		m.flip_v = false
+		m.global_transform = global_transform \
+				* Transform2D(0.0, rect_size, 0.0, Vector2.ZERO)
+
+
+## 兜底用的白点（1×1），画成矩形
+func _white_tex() -> Texture2D:
+	var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1, 1, 1, 1))
+	return ImageTexture.create_from_image(img)
