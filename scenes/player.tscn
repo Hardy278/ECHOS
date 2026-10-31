@@ -14,6 +14,7 @@ size = Vector2(10, 16)
 
 [node name="Player" type="CharacterBody2D" unique_id=1322106864]
 script = ExtResource("1_player")
+dash_amp = 0.6
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=771324102]
 shape = SubResource("RectangleShape2D_body")

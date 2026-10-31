@@ -243,16 +243,19 @@ func _scan_rooms() -> void:
 		push_error("RoomSystem: 打不开房间目录 %s" % rooms_dir)
 		return
 	for f in dir.get_files():
-		if not f.ends_with(".tscn"):
+		# 打包时 .tscn 会被转成 .scn，目录里只剩 "xxx.tscn.remap"；
+		# 编辑器里则是 xxx.tscn 本身。两种都要认——load() 会自己走 remap。
+		var name := f.trim_suffix(".remap")
+		if not name.ends_with(".tscn"):
 			continue
-		var scene := load(rooms_dir.path_join(f)) as PackedScene
+		var scene := load(rooms_dir.path_join(name)) as PackedScene
 		if scene == null:
-			push_warning("RoomSystem: %s 不是能用的场景" % f)
+			push_warning("RoomSystem: %s 不是能用的场景" % name)
 			continue
 		var c := coord_of(scene)
 		if _rooms.has(c):
 			push_warning("RoomSystem: 坐标 %s 上有两个房间，%s 会盖掉 %s"
-					% [c, f, (_rooms[c] as PackedScene).resource_path.get_file()])
+					% [c, name, (_rooms[c] as PackedScene).resource_path.get_file()])
 		_rooms[c] = scene
 	if _rooms.is_empty():
 		push_error("RoomSystem: %s 里没有房间场景" % rooms_dir)

@@ -57,34 +57,28 @@ func _process(_delta: float) -> void:
 	if not _seated:
 		# 只有站在地上才能坐
 		if _player.is_on_floor():
-			_set_hint("按 X 坐下")
+			_player.hint = "按 X 坐下"
 			if Input.is_action_just_pressed("sit"):
 				_seated = true
 				_player.sit()
 		else:
-			_set_hint("")
+			_player.hint = ""
 		return
 
 	# 坐着：A/D 只改朝向
-	_set_hint("按 A/D 调整方向  按 X 发射")
+	_player.hint = "按 A/D 调整方向  按 X 发射"
 	var ix := Input.get_axis("move_left", "move_right")
 	if not is_zero_approx(ix):
 		_dir = signf(ix)
 	if Input.is_action_just_pressed("sit"):
 		_seated = false
-		_set_hint("")
+		_player.hint = ""
 		_player.launch(_dir, power, max_speed, dash_time)
 
 
 func _stand() -> void:
-	if _seated and _player != null:
-		_player.stand()
+	if _player != null:
+		if _seated:
+			_player.stand()
+		_player.hint = ""
 	_seated = false
-	_set_hint("")
-
-
-## 提示走 Main 的 hint，HUD 每帧重写自己那几行，这里只负责塞一句
-func _set_hint(text: String) -> void:
-	var main := get_tree().get_first_node_in_group("main")
-	if main != null:
-		main.set("hint", text)

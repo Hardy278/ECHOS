@@ -48,8 +48,9 @@ id = &"r1_0.gate2"
 
 [node name="Shooter" parent="." unique_id=1372505707 instance=ExtResource("6_ub4w0")]
 position = Vector2(200, 56)
-max_speed = 350.0
-dash_time = 3.0
+power = 50000.0
+max_speed = 290.0
+dash_time = 3.2
 
 [node name="SoundDoor3" parent="." unique_id=505764549 instance=ExtResource("5_tbrea")]
 position = Vector2(232, 40)

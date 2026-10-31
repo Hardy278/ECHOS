@@ -14,13 +14,19 @@ signal landed(strength: float)
 @export var speed := 70.0           ## 水平走速（单位/秒）
 @export var gravity := 900.0        ## 重力加速度（单位/秒²）
 @export var jump_velocity := 254.5  ## 起跳初速
+@export var coyote_time := 0.1      ## 土狼时间：走出平台边缘后还能起跳的宽限（秒）
 @export var dash_amp := 0.8         ## 激波推进时的发声强度（再乘 实际速度/末速）
 
 ## 防止 v = 0 时功率除法爆掉
 const DASH_V_FLOOR := 20.0
 
+## 环境物件（发射器之类）写进来的提示；HUD 每帧从角色身上拉
+var hint := ""
+
 ## 角色动态下落速度
 var _fall_speed := 0.0
+## 土狼时间剩余
+var _coyote := 0.0
 ## 朝向（最后一次水平输入的方向），发射方向用它
 var _facing := 1.0
 ## 坐在发射器里：完全静止
@@ -78,12 +84,16 @@ func _physics_process(delta: float) -> void:
 
 	velocity.x = 0.0 if _seated else ix * speed
 
+	# 土狼时间：还在地上就续满，离地后一格一格扣
+	_coyote = coyote_time if is_on_floor() else maxf(0.0, _coyote - delta)
+
 	if not is_on_floor():
 		velocity.y += gravity * delta
 		_fall_speed = velocity.y
-	if not _seated and Input.is_action_just_pressed("jump") and is_on_floor():
+	if not _seated and _coyote > 0.0 and Input.is_action_just_pressed("jump"):
 		velocity.y = -jump_velocity
 		_fall_speed = 0.0
+		_coyote = 0.0
 
 	var was_floor := is_on_floor()
 	move_and_slide()
