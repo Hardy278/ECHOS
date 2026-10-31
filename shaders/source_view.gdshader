@@ -19,6 +19,8 @@ uniform sampler2D band_tex : filter_nearest, repeat_disable;
 uniform vec2 field_size = vec2(480.0, 270.0);
 uniform vec2 listener_px = vec2(240.0, 238.0);   // 听者坐标（每帧跟随角色）
 uniform float hear_ref = 0.05;      // 到达耳朵多响算"听得清"（> 它不再变亮）
+// 战争迷雾：1 = 听不见就不画这一层；0 = 不管听不听得见，波照画。
+uniform float hear_gate = 0.0;
 uniform float bg_gain = 0.45;       // 空气里的行波强度（太亮就调小）
 uniform float edge_gain = 4.00;     // 撞到表面时的高光倍数
 uniform float gain = 1.0;           // 这个物体的总体音量
@@ -42,9 +44,10 @@ float heard_level(vec2 uv) {
 }
 
 void fragment() {
-	// ---- 听得见多少（整层共用一个闸门）----
+	// ---- 听得见多少（整层共用一个闸门；hear_gate = 0 时整层不设闸门）----
 	float hear = heard_level(listener_px / field_size);
-	float gate = clamp(hear / max(hear_ref, 0.0001), 0.0, 1.0);
+	float heard = clamp(hear / max(hear_ref, 0.0001), 0.0, 1.0);
+	float gate = mix(1.0, heard, hear_gate);
 
 	// ---- 场里的能量：小半径五点模糊，压掉跨步造成的方块感 ----
 	vec2 px = (1.0 / field_size) * blur_px;

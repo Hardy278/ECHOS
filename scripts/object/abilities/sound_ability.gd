@@ -11,12 +11,6 @@ extends Node
 @export var amp := 0.5      ## 声音的强弱
 @export var steps := 1      ## 声音持续几个 step（物理模拟步数）
 @export var cooldown := 0.0 ## 声音的冷却时间
-## 遮罩形状：k > 1 时中心陡、边缘趋平（斜率绝对值单调变小）。
-## 遮罩**大小**不在这里：半径 = mask_span × amp，强度本身就是大小，
-## 所以想照得远就直接把 amp 抬上去。
-@export var falloff := 1.8
-## 这一次发声的遮罩缩放（1 = 按 mask_span 算）。想单独收窄/放大某一个声音时用。
-@export var mask_scale := 1.0
 
 var _cd := 0.0
 var _target: Node
@@ -53,7 +47,7 @@ func fire(strength: float) -> bool:
 	if t == null or not t.has_method("emit_sound"):
 		return false
 	_cd = cooldown
-	t.emit_sound(_origin(), _amp_for(strength), steps, falloff, mask_scale)
+	t.emit_sound(_origin(), _amp_for(strength), steps)
 	return true
 
 

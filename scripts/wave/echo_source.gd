@@ -6,13 +6,10 @@ class_name EchoSource
 ##
 ## 每个能出声的东西（角色、钟、以后的水滴 / 敌人……）挂一个，就拥有**一份独立的**
 ## 与世界等大的波动方程（SubViewport + wave_step_fb，尺寸见 EchoField），在自己的墙上跑。
-## 发声只是往这个场里注入一次能量，
-## 遮罩半径由强度推出来（对数级）：
-## R = mask_span × ln(1 + amp/mask_eps)，所以同一个场里可以既有 27 半径的心跳
-## 也有 72 半径的喊叫。
+## 发声只是往这个场里注入一次能量（一个 inject_r 大小的高斯），
+## **没有遮罩**：一声能传多远，由 damp、房间声学和中间撞上什么决定。
 ##
 ## 所有声源在世界那边（EchoWorld）按各自的音色（tint / gain）叠加成总的照亮。
-## 这里不再有"到听者的距离衰减"：遮罩已经在注入时写进波的振幅里了。
 ##
 ## 场只在发声后推进 LIVE_SEC，然后停掉 SubViewport 。
 
@@ -25,7 +22,7 @@ const STRIDE := 4.0
 const STEPS_HZ := 60.0
 const TICK_DT := 1.0 / STEPS_HZ
 ## 一次发声后，场还值得推进多久；过了就停
-const LIVE_SEC := 2.6
+const LIVE_SEC := 4
 ## 清场要写两帧（一帧写不满整张 HDR 缓冲的边角）
 const CLEAR_FRAMES := 2
 ## 开口边的吸声层宽度（texel）：必须和着色器里的 sponge_w 是同一个数
@@ -38,14 +35,11 @@ const SEED_GAIN := 0.7
 @export var damp := 0.9955          ## 模拟里每步的振幅衰减
 @export var env_decay := 0.966      ## 模拟里包络（余晖）的衰减
 @export var emit_radius := 14.0     ## 注入的高斯半径（这个物体的"嗓子"粗细）
-## 遮罩：半径 R = mask_span × ln(1 + 振幅 / mask_eps)。
-## 亮度仍然线性跟着振幅，宽度只是对数级增长，所以两者被拆开了。
-## 默认 30 / 0.03 → 心跳(.045)=27、钟(.2)=61、喊叫(.3)=72。
-@export var mask_span := 30.0
-## 压缩强度：越小，安静端被抬得越多、响度差被压得越平
-@export var mask_eps := 0.03
 ## 到达听者耳朵多响算"听得清"：低于它的声音，它的整个波都不会画给玩家看
 @export var hear_ref := 0.05
+## 战争迷雾：true = 听不见就不画这一层（角色自己的声道这样用，才有"回声散掉"）。
+## false = 不管听不听得见，波照画（钟、机关、门这些"别的声源"就该一直亮着）。
+@export var hear_gate := false
 @export var tint := Color(0.62, 0.82, 1.0)
 @export var gain := 1.2
 ## 每次发声前把场清空。周期性的声音通常关掉：上一发的余晖还在，接着发才连贯。
@@ -95,9 +89,6 @@ func _make_step_material(geo_tex: Texture2D, src_tex: Texture2D) -> ShaderMateri
 	m.set_shader_parameter("hf_damp", 0.02)
 	m.set_shader_parameter("inject_r", emit_radius)
 	m.set_shader_parameter("emit_px", _emit_pos)
-	m.set_shader_parameter("mask_span", mask_span)
-	m.set_shader_parameter("mask_eps", mask_eps)
-	m.set_shader_parameter("emit_falloff", 1.8)
 	m.set_shader_parameter("inject", 0.0)
 	m.set_shader_parameter("reset", 0.0)
 	m.set_shader_parameter("sponge_w", SPONGE_W)
@@ -157,6 +148,7 @@ func _setup() -> void:
 	_view_mat.set_shader_parameter("gain", gain)
 	_view_mat.set_shader_parameter("tint", tint)
 	_view_mat.set_shader_parameter("hear_ref", hear_ref)
+	_view_mat.set_shader_parameter("hear_gate", 1.0 if hear_gate else 0.0)
 	_view_mat.set_shader_parameter("listener_px", global_position)
 
 	if _world != null:
@@ -172,11 +164,8 @@ func emit(amp: float = 1.0, steps_wanted: int = 1) -> void:
 
 ## 发声：amp 是注入振幅，steps 是连续注入的帧数。
 ##
-## 遮罩半径 R = mask_span × ln(1 + amp/mask_eps)：亮度线性、宽度对数级，
-## mask_scale 是这一次发声自己的缩放（想单独收窄某一个声音时用）。
-## 一个场里可以混着不同强度的几次发声，各带各的遮罩——不需要各占一个声道。
-func emit_at(origin: Vector2, amp: float = 1.0, steps_wanted: int = 1,
-		falloff: float = 1.8, mask_scale: float = 1.0) -> void:
+## 没有遮罩：注入就是一个 inject_r 半径的高斯，能传多远交给 damp 和几何。
+func emit_at(origin: Vector2, amp: float = 1.0, steps_wanted: int = 1) -> void:
 	_emit_pos = origin
 	_amp = amp
 	_steps = maxi(_steps, steps_wanted)
@@ -186,14 +175,11 @@ func emit_at(origin: Vector2, amp: float = 1.0, steps_wanted: int = 1,
 	if _mat != null:
 		_write_tuning()          # 房间可能换过了，声学跟着换
 		_set_param("emit_px", _emit_pos)
-		_set_param("emit_falloff", falloff)
-		_set_param("mask_span", mask_span * mask_scale)
 
 
 ## 统一发声入口：挂在它下面的 SoundAbility 通过这里发进来
-func emit_sound(origin: Vector2, amp: float, steps_wanted: int,
-		falloff: float = 1.8, mask_scale: float = 1.0) -> void:
-	emit_at(origin, amp, steps_wanted, falloff, mask_scale)
+func emit_sound(origin: Vector2, amp: float, steps_wanted: int) -> void:
+	emit_at(origin, amp, steps_wanted)
 
 
 ## 外部清场（切房间时用）：两帧把场写成 0，然后停掉，别带着旧房间的反射走

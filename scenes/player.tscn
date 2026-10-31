@@ -26,30 +26,27 @@ texture = ExtResource("7_sprite")
 [node name="Echo" type="Node2D" parent="." unique_id=1623754491]
 script = ExtResource("8_echo")
 damp = 0.97
+env_decay = 0.94
 emit_radius = 16.0
 tint = Color(0.8799364, 0.7892666, 0.5208506, 1)
 
 [node name="Heartbeat" type="Node" parent="Echo" unique_id=1678985544]
 script = ExtResource("4_hb")
 amp = 0.045
-falloff = 2.4
 
 [node name="Landing" type="Node" parent="Echo" unique_id=679542595]
 script = ExtResource("5_land")
 amp = 0.1
-falloff = 1.9
 
 [node name="Shout" type="Node" parent="Echo" unique_id=506087389]
 script = ExtResource("6_shout")
-amp = 0.2
+amp = 0.3
 cooldown = 1.5
-falloff = 1.7
 
 [node name="Drown" type="Node" parent="Echo" unique_id=1114452252]
 script = ExtResource("9_drown")
 amp = 0.2
 steps = 2
-falloff = 2.0
 
 [node name="GrassTrample" type="Node2D" parent="." unique_id=1353151571]
 script = ExtResource("3_grass")

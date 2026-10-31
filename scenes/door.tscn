@@ -51,5 +51,4 @@ transmit = 0.9
 [node name="EchoSource" type="Node2D" parent="." unique_id=777376556]
 script = ExtResource("3_echo")
 damp = 0.97
-mask_span = 116.0
 tint = Color(1, 0.84, 0.6, 1)

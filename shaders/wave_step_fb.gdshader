@@ -30,13 +30,8 @@ uniform float sponge_absorb = 0.5;     // 贴边处每步损失比例（向内�
 uniform vec2 emit_px = vec2(240.0, 238.0);
 uniform float inject = 0.0;
 uniform float inject_r = 6.0;
-// 这一次发声的遮罩：半径 R = mask_span × ln(1 + 振幅/eps)，形状由 emit_falloff（k）决定。
-//   - 亮度线性跟着振幅（inject），宽度是对数级增长 → 响度和宽度被拆开了
-//   - dR/d(amp) ∝ 1/amp：越响，半径增长越慢
-//   - eps 越小，安静端被抬得越多、响度差被压得越平
-uniform float mask_span = 30.0;        // 对数上的尺度（世界单位）
-uniform float mask_eps = 0.03;         // 压缩强度
-uniform float emit_falloff = 1.8;      // 形状：k > 1 时中心陡、边缘趋平
+// 没有遮罩：注入只是一个以声源为中心的高斯（半径 inject_r）。
+// 一声能传多远，只由 damp、房间声学和中间撞上了什么决定，不再有半径上限。
 uniform float reset = 0.0;
 // 定场：切房间时把上一间房子门口那一薄片原样写进新房间的入口侧。
 // 只在 reset 帧写一次，之后交给场自己演化。
@@ -168,10 +163,6 @@ void fragment() {
 		if (inject > 0.0001) {
 			float dsrc = distance(p + vec2(0.5), emit_px);
 			float g = exp(-(dsrc * dsrc) / (inject_r * inject_r));
-			// x = d / R，R 随强度对数增长：喊叫可以更响，但不会跟着更宽
-			float mask_r = mask_span * log(1.0 + inject / max(mask_eps, 0.0001));
-			mask_r = max(mask_r, 0.001);
-			g *= pow(clamp(1.0 - dsrc / mask_r, 0.0, 1.0), emit_falloff);
 			if (g > 0.002 && !clear_path(emit_px / field_size, UV)) {
 				g = 0.0;
 			}

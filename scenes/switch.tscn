@@ -30,5 +30,4 @@ visual = NodePath("../Sprite")
 script = ExtResource("3_echo")
 damp = 0.97
 env_decay = 0.96
-mask_span = 40.0
 tint = Color(0.7, 1, 0.8, 1)
