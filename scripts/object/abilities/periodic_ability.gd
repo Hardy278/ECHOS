@@ -8,6 +8,10 @@ extends SoundAbility
 		period = v
 		if _timer != null:
 			_timer.wait_time = maxf(v, 0.01)
+## 是否一起来就发第一声。
+## 关着（默认）的话，第一声要等满一个 period；
+## 开着的话在 _ready 之后的第一帧就发——对"房间一进来就该亮着"的声源有用。
+@export var start_immediately := false
 
 var _timer: Timer
 var _want := false
@@ -22,6 +26,9 @@ func _ready() -> void:
 	_timer.process_callback = Timer.TIMER_PROCESS_PHYSICS
 	_timer.timeout.connect(_on_timeout)
 	add_child(_timer)
+
+	if start_immediately:
+		_want = true
 
 
 func _on_timeout() -> void:

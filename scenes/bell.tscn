@@ -26,4 +26,5 @@ gain = 1.4
 
 [node name="Tick" type="Node" parent="EchoSource" unique_id=1083913178]
 script = ExtResource("3_tick")
+start_immediately = true
 amp = 0.25
