@@ -6,7 +6,7 @@ extends Node2D
 ## 亮度取"总的照亮"，所以它响的时候会照亮自己，你冲它喊一声也会把它照出来；
 ## 听者听不见的时候，对应那层光本来就被闸门压成 0，钟也就不会露出来。
 ##
-## 声学形状由子节点 AcousticBody 提供（照抄 Sprite 的轮廓，transmit = 1：
+## 声学形状由子节点 AcousticBody 提供（照抄 Sprite 的轮廓，Z = 1：
 ## 只留形状，声音照穿——不然它自己的声源会被自己的轮廓挡住）。
 ## 发声由子节点 EchoSource 负责，定时由 EchoSource/Tick（SoundAbility）负责。
 

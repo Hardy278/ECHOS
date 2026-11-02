@@ -92,6 +92,11 @@ func band_texture() -> Texture2D:
 	return geometry.band_texture() if geometry != null else null
 
 
+## 显示纹理（R = show，G = alpha）。波场每步读 G 当体积吸声系数。
+func display_texture() -> Texture2D:
+	return geometry.display_texture() if geometry != null else null
+
+
 ## 合成光（调试/探针用）
 func light_texture() -> Texture2D:
 	return _light_vp.get_texture() if _light_vp != null else null

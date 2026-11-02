@@ -3,9 +3,9 @@ extends Node
 ## 世界几何：**每帧**把前景 / 中景 / 后景的图块现画成一张活纹理。
 ##
 ## 纹理通道（尺寸见 EchoField，1 texel = 1 世界单位）：
-##   R = 吸声性（这块图块自己画不画）
-##   G = 绝对折射率（1 = 空气，越大声速越慢）
-##   B = 透声性（声音能不能穿过去）
+##   R = surface（显现边缘：**由声阻抗 Z 推出**，见 surface_from_z）
+##   G = 绝对折射率 c（1 = 空气，越大声速越慢）
+##   B = 透声性 transmit（**由声阻抗 Z 推出**，见 transmit_from_z）
 ##   A = 覆盖（这一格有图块；前景压中景、中景压后景）
 ##
 ## 为什么不直接共享主视口的画布：Godot 的 World2D 同时装着物理空间**和画布**，
@@ -21,6 +21,7 @@ const GEO_SHADER := preload("res://shaders/geo_tile.gdshader")
 const DISPLAY_SHADER := preload("res://shaders/geo_display.gdshader")
 const BAND_SHADER := preload("res://shaders/band.gdshader")
 const BODY_SHADER := preload("res://shaders/geo_body.gdshader")
+const BODY_ALPHA_SHADER := preload("res://shaders/geo_body_alpha.gdshader")
 ## 单面平台默认的"显现纹理"值：0.8。
 ## 它以前是靠 absorb=0.2（把 v 乘 0.8）压暗的，现在换成显式的不透明度上限。
 const DEFAULT_ONE_WAY_SHOW := 0.8
@@ -30,6 +31,9 @@ const DEFAULT_REFRACTIVE_SHOW := 0.6
 ## 层表里没有实体层时的兜底 z：压在所有图块层之上
 const ENTITY_Z_FALLBACK := 3
 const MAX_BAND_PX := 4
+
+## Z / c / α 怎么变成纹理通道，全在 AcousticMedium 里（图块和实体共用同一套）。
+
 
 ## 1 个 tile 像素 = 几个场 texel。由图层缩放推出（2 倍缩放 → 2），不写死。
 var band_px := 1
@@ -44,7 +48,9 @@ var _band_mat: ShaderMaterial
 var _mirrors: Dictionary = {}      # {图层下标: {source_id: TileMapLayer}}
 var _display_mirrors: Dictionary = {}   # 同上，但画进显示视口
 var _shapes: Dictionary = {}       # AcousticShape → CanvasItem（画在几何视口里的声学形状）
-var _atlas_cache: Dictionary = {}  # source_id → 参数图
+var _shape_display: Dictionary = {}  # 同上，但画进显示视口（只写 α）
+var _atlas_cache: Dictionary = {}  # source_id → 几何参数图
+var _display_atlas_cache: Dictionary = {}  # source_id → 显示参数图
 var _mat_cache: Dictionary = {}    # source_id → 几何材质
 var _display_mat_cache: Dictionary = {}  # source_id → 显示材质
 var _dirty := false
@@ -144,19 +150,46 @@ func _sync_shapes() -> void:
 		var shape := n as AcousticShape
 		if shape == null:
 			continue
-		var mirror := _shapes.get(shape) as CanvasItem
-		if mirror == null or not is_instance_valid(mirror):
-			mirror = shape.build_mirror()
-			if mirror == null:
-				continue
-			mirror.material = _body_material()
-			_canvas.add_child(mirror)
-			_shapes[shape] = mirror
-		# 实体的合成 z 由层表决定（默认 3：压在所有图块层之上）
-		mirror.z_index = z
-		shape.pose_mirror(mirror)
-		_apply_shape_params(shape, mirror)
+		_sync_one_shape(shape, z, false)
+		_sync_one_shape(shape, z, true)
 	_sweep_shapes()
+
+
+## 一块声学形状在几何视口、显示视口里各有一面镜子（同一个节点不能同时在两个视口里，
+## 和瓦片镜像是一个道理）。几何那面写 surface/ior/transmit，显示那面只写吸声 α。
+## 显示那面是**按需**的：α = 0 的实体根本不需要，省掉一次摆形状，
+## 也免得它在显示图里多写一片覆盖（那片覆盖会盖掉背景砖自己的 show）。
+func _sync_one_shape(shape: AcousticShape, z: int, display: bool) -> void:
+	var table: Dictionary = _shape_display if display else _shapes
+	var canvas := _display_canvas if display else _canvas
+	if canvas == null:
+		return
+	if display and shape.alpha_value() <= 0.0:
+		_drop_shape_mirror(shape, _shape_display, canvas)
+		return
+	var mirror := table.get(shape) as CanvasItem
+	if mirror == null or not is_instance_valid(mirror):
+		mirror = shape.build_mirror()
+		if mirror == null:
+			return
+		mirror.material = _alpha_material() if display else _body_material()
+		canvas.add_child(mirror)
+		table[shape] = mirror
+	# 实体的合成 z 由层表决定（默认 3：压在所有图块层之上）
+	mirror.z_index = z
+	shape.pose_mirror(mirror)
+	_apply_shape_params(shape, mirror, display)
+
+
+func _drop_shape_mirror(shape: AcousticShape, table: Dictionary, canvas: Node) -> void:
+	var old := table.get(shape) as Node
+	if old == null:
+		return
+	if is_instance_valid(old):
+		if canvas != null:
+			canvas.remove_child(old)
+		old.queue_free()
+	table.erase(shape)
 
 
 ## 实体层定义。拿不到就返回 null，调用方退回默认值。
@@ -173,26 +206,40 @@ func _body_material() -> ShaderMaterial:
 	return m
 
 
-func _apply_shape_params(shape: AcousticShape, mirror: CanvasItem) -> void:
+func _alpha_material() -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = BODY_ALPHA_SHADER
+	return m
+
+
+## 形状 → 着色器参数。transmit / surface 都是 AcousticMedium 从 Z 推出来的，
+## 所以实体和图块填的是同一套物理量。
+func _apply_shape_params(shape: AcousticShape, mirror: CanvasItem, display: bool) -> void:
 	var m := mirror.material as ShaderMaterial
 	if m == null:
 		return
-	m.set_shader_parameter("surface", shape.surface)
-	m.set_shader_parameter("ior", shape.ior)
-	m.set_shader_parameter("transmit", shape.transmit)
+	if display:
+		m.set_shader_parameter("alpha", shape.alpha_value())
+		return
+	m.set_shader_parameter("surface", shape.surface_value())
+	m.set_shader_parameter("ior_ch", AcousticMedium.ior_to_channel(shape.ior))
+	m.set_shader_parameter("transmit", shape.transmit_value())
 
 
 ## 实体被销毁（房间换了）就把它的镜子摘掉
 func _sweep_shapes() -> void:
-	for b in _shapes.keys():
-		var mirror := _shapes[b] as Node
-		if is_instance_valid(b) and is_instance_valid(mirror):
-			continue
-		if is_instance_valid(mirror):
-			if _canvas != null:
-				_canvas.remove_child(mirror)
-			mirror.queue_free()
-		_shapes.erase(b)
+	for pair in [[_shapes, _canvas], [_shape_display, _display_canvas]]:
+		var table: Dictionary = pair[0]
+		var canvas = pair[1]
+		for b in table.keys():
+			var mirror := table[b] as Node
+			if is_instance_valid(b) and is_instance_valid(mirror):
+				continue
+			if is_instance_valid(mirror):
+				if canvas != null:
+					(canvas as Node).remove_child(mirror)
+				mirror.queue_free()
+			table.erase(b)
 
 
 # ---------------------------------------------------------------- 装配
@@ -349,7 +396,7 @@ func _display_material(src: int) -> ShaderMaterial:
 		return _display_mat_cache[src]
 	var m := ShaderMaterial.new()
 	m.shader = DISPLAY_SHADER
-	m.set_shader_parameter("params_atlas", _params_atlas(src))
+	m.set_shader_parameter("params_atlas", _params_atlas(src, true))
 	_display_mat_cache[src] = m
 	return m
 
@@ -359,21 +406,24 @@ func _geo_material(src: int) -> ShaderMaterial:
 		return _mat_cache[src]
 	var m := ShaderMaterial.new()
 	m.shader = GEO_SHADER
-	m.set_shader_parameter("params_atlas", _params_atlas(src))
+	m.set_shader_parameter("params_atlas", _params_atlas(src, false))
 	_mat_cache[src] = m
 	return m
 
 
 # ---------------------------------------------------------------- 逐图块参数
 
-## 和某个图集纹理等大的参数图：每个 tile 的矩形里填它自己的
-## (surface, ior, transmit, show)。四个值刚好占满 RGBA——
-##   · 几何视口 取 RGB（surface/ior/transmit）+ A 一律写 1（覆盖）
-##   · 显示视口 取 A（show）
+## 和某个图集纹理等大的参数图。图集里每个 tile 的矩形都填上它自己的一整组参数。
+## 两种图，通道含义不同，各自喂给一张视口：
+##   · display = false（几何视口）: R = surface, G = ior, B = transmit, A = 1（覆盖）
+##   · display = true （显示视口）: R = show,    G = alpha, B = 0,      A = 1（覆盖）
+## surface / transmit 是美术填的 Z 推出来的（AcousticMedium.surface_from_z / transmit_from_z），
+## Z 这个名字只活在这个函数里，着色器一点都不知道有它。
 ## 两张全屏纹理各自从一个视口来，所以不需要把一个通道劈成两半用。
-func _params_atlas(src: int) -> Texture2D:
-	if _atlas_cache.has(src):
-		return _atlas_cache[src]
+func _params_atlas(src: int, display: bool) -> Texture2D:
+	var cache: Dictionary = _display_atlas_cache if display else _atlas_cache
+	if cache.has(src):
+		return cache[src]
 
 	var tset := _find_tileset()
 	var atlas: TileSetAtlasSource = null
@@ -381,16 +431,16 @@ func _params_atlas(src: int) -> Texture2D:
 		atlas = tset.get_source(src) as TileSetAtlasSource
 	var tex: Texture2D = atlas.texture if atlas != null else null
 	if tex == null:
-		_atlas_cache[src] = _blank_texture()
-		return _atlas_cache[src]
+		cache[src] = _blank_texture()
+		return cache[src]
 
 	var img := Image.create(tex.get_width(), tex.get_height(), false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 
-	var surface_id := tset.get_custom_data_layer_by_name("surface")
-	var tr_id := tset.get_custom_data_layer_by_name("transmit")
+	var z_id := tset.get_custom_data_layer_by_name("Z")
 	var ior_id := tset.get_custom_data_layer_by_name("ior")
 	var show_id := tset.get_custom_data_layer_by_name("show")
+	var alpha_id := tset.get_custom_data_layer_by_name("alpha")
 	var has_phys := tset.get_physics_layers_count() > 0
 
 	for i in atlas.get_tiles_count():
@@ -408,16 +458,16 @@ func _params_atlas(src: int) -> Texture2D:
 		# 上限 4 只是防呆：基础 cfl 贴着稳定上限，n < 1 会让场爆掉，所以下限锁在 1。
 		var ior := 1.0
 		if ior_id >= 0 and td != null:
-			ior = clampf(float(td.get_custom_data_by_layer_id(ior_id)), 1.0, 4.0)
+			ior = clampf(float(td.get_custom_data_by_layer_id(ior_id)), 1.0, AcousticMedium.IOR_MAX)
 
-		var transmit := 0.0
-		if tr_id >= 0 and td != null:
-			transmit = clampf(float(td.get_custom_data_by_layer_id(tr_id)), 0.0, 1.0)
+		# 声阻抗 Z 是美术填的那个量；透声系数由它推出来。
+		var z := 0.0
+		if z_id >= 0 and td != null:
+			z = float(td.get_custom_data_by_layer_id(z_id))
+		var transmit := AcousticMedium.transmit_from_z(z)
 
-		# surface：显不显现边缘。没填 = 1（正常出表面带高光）
-		var surface := 1.0
-		if surface_id >= 0 and td != null:
-			surface = clampf(float(td.get_custom_data_by_layer_id(surface_id)), 0.0, 1.0)
+		# surface：显不显现边缘。由 Z 推出来（反射系数），不再单独填。
+		var surface := AcousticMedium.surface_from_z(z)
 
 		# show：显不显现纹理。没填时按"材质种类"给默认值：
 		#   · 单面平台 0.8（原来是 absorb=0.2 压暗的）
@@ -430,14 +480,22 @@ func _params_atlas(src: int) -> Texture2D:
 		elif ior > 1.01:
 			show = DEFAULT_REFRACTIVE_SHOW
 
-		# 动画图块的每一帧都是图集里的一块矩形，全都要填
-		var col := Color(surface, ior, transmit, show)
+		# 吸声 α：介质**内部**的体衰减，和界面上的 transmit 是两回事。
+		# 只写进显示图的 G 通道，由 wave_step_fb 每步读。
+		var alpha := 0.0
+		if alpha_id >= 0 and td != null:
+			alpha = clampf(float(td.get_custom_data_by_layer_id(alpha_id)), 0.0, 1.0)
+
+		# 动画图块的每一帧都是图集里的一块矩形，全都要填。
+		# G 是 RGBA8 通道（0~1），所以 c 要归一化：1 → 0，IOR_MAX → 1。
+		var col := Color(show, alpha, 0.0, 1.0) if display \
+				else Color(surface, AcousticMedium.ior_to_channel(ior), transmit, 1.0)
 		var frames := maxi(1, atlas.get_tile_animation_frames_count(coords))
 		for f in frames:
 			img.fill_rect(atlas.get_tile_texture_region(coords, f), col)
 
 	var out := ImageTexture.create_from_image(img)
-	_atlas_cache[src] = out
+	cache[src] = out
 	return out
 
 

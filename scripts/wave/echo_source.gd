@@ -31,6 +31,9 @@ const SPONGE_W := 28.0
 const SEED_W := 12
 ## 搬过来的能量打个折：只有开口那一部分该穿过去
 const SEED_GAIN := 0.7
+## α = 1 的材质每步损失多少振幅。60 步/秒，0.03 等于一秒掉到 0.16——
+## 这是"完美吸声体"的档，真正的材质填 0~1 之间。
+const ABSORB_GAIN := 0.03
 
 @export var damp := 0.9955          ## 模拟里每步的振幅衰减
 @export var env_decay := 0.966      ## 模拟里包络（余晖）的衰减
@@ -86,6 +89,7 @@ func _make_step_material(geo_tex: Texture2D, src_tex: Texture2D) -> ShaderMateri
 	m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
 	m.set_shader_parameter("stride", STRIDE)
 	m.set_shader_parameter("cfl", 0.48)
+	m.set_shader_parameter("ior_max", AcousticMedium.IOR_MAX)
 	m.set_shader_parameter("hf_damp", 0.02)
 	m.set_shader_parameter("inject_r", emit_radius)
 	m.set_shader_parameter("emit_px", _emit_pos)
@@ -105,11 +109,15 @@ func _setup() -> void:
 
 	var geo_tex: Texture2D = null
 	var band_tex: Texture2D = null
+	var alpha_tex: Texture2D = null
 	if _world != null:
 		geo_tex = _world.geometry_texture()
 		band_tex = _world.band_texture()
+		alpha_tex = _world.display_texture()
 	if geo_tex == null:
 		geo_tex = _blank_texture()      # 没有世界 = 空气，至少别把场涂白
+	if alpha_tex == null:
+		alpha_tex = _blank_texture()    # 没有显示数据 = 谁都不吸声
 
 	# 双缓冲 ping-pong：两块 SubViewport 互相采样对方的纹理，轮流当"正面"。
 	# 之前用的是 hint_screen_texture（读自己的屏幕快照），实测它每步会带进
@@ -138,6 +146,8 @@ func _setup() -> void:
 		(_vps[k] as SubViewport).add_child(cr)
 	_mat = _mats[0]
 	_front = 0
+	_set_param("alpha_tex", alpha_tex)
+	_set_param("absorb_gain", ABSORB_GAIN)
 	_write_tuning()
 
 	_view_mat = ShaderMaterial.new()

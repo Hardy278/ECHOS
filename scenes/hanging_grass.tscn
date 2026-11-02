@@ -11,17 +11,17 @@ wave_segs = 5.0
 
 [node name="Shape0" type="Node2D" parent="." unique_id=44020320]
 script = ExtResource("3_stroke")
-transmit = 1.0
+Z = 1.0
 
 [node name="Shape1" type="Node2D" parent="." unique_id=1490718037]
 script = ExtResource("3_stroke")
 strand = 1
-transmit = 1.0
+Z = 1.0
 
 [node name="Shape2" type="Node2D" parent="." unique_id=1671473733]
 script = ExtResource("3_stroke")
 strand = 2
-transmit = 1.0
+Z = 1.0
 
 [node name="Fruit" parent="." unique_id=1600518188 instance=ExtResource("2_fruit")]
 strand = 1

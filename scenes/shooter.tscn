@@ -19,7 +19,7 @@ region_rect = Rect2(0, 0, 8, 8)
 
 [node name="Body" type="Node2D" parent="."]
 script = ExtResource("2_body")
-transmit = 1.0
+Z = 1.0
 
 [node name="Area" type="Area2D" parent="."]
 collision_layer = 0

@@ -12,15 +12,23 @@ render_mode blend_disabled;
 // 缓冲必须浮点（use_hdr_2d）；8 位量化的误差会被二阶差分迅速放大。
 //
 // 墙来自世界几何纹理 geo_tex（EchoWorld 每帧现画的那张），通道含义：
-//   R = 吸声性  G = 绝对折射率 n  B = 透声性  A = 覆盖
+//   R = surface（波场不用）  G = 绝对折射率 n  B = 透声性  A = 覆盖
+// 吸声 α 来自显示纹理 alpha_tex 的 G 通道。
 
 uniform sampler2D src_tex : filter_nearest, repeat_disable;
 uniform sampler2D geo_tex : filter_nearest, repeat_disable;
+// 体积吸声：显示纹理的 G 通道 = 每块砖的 α。和 geo_tex 的 B（界面透声）是两回事——
+// transmit 是"过不过得去"，α 是"过去以后被吃掉多少"，沿路径累积。
+uniform sampler2D alpha_tex : filter_nearest, repeat_disable;
+uniform float absorb_gain = 0.0;     // α 的总倍率（0 = 整套吸声关掉，α = 1 时每步损失它）
 uniform vec2 field_size = vec2(480.0, 270.0);
 uniform float cfl = 0.48;
 uniform float stride = 4.0;
 uniform float damp = 0.998;
 uniform float env_decay = 0.9971;
+// 几何纹理的 G 通道是 RGBA8（0~1），折射率按 [1, ior_max] 归一化过，
+// 不先解码的话 n 永远等于 1，水就不折射。和 AcousticMedium.IOR_MAX 是同一个数。
+uniform float ior_max = 4.0;
 uniform float hf_damp : hint_range(0.0, 0.5) = 0.01;
 // 有出口的那条边做成吸声层：波走到房间边缘被吃掉，不弹回来。
 // (左, 右, 上, 下)，1 = 这条边有相邻房间 = 开口 = 吸声；0 = 世界的尽头 = 照旧全反射。
@@ -138,10 +146,10 @@ void fragment() {
 		float lap = l + r + d + up - 4.0 * u;
 
 		vec4 m = texture(geo_tex, UV);
-		// 介质：G 是绝对折射率 n（空气 = 1，水 = 1.33，玻璃 ≈ 1.5），波速 = 空气速 / n。
+		// 介质：G 是归一化过的绝对折射率（0 = 空气，1 = ior_max），波速 = 空气速 / n。
 		// cfl 是 (c·dt/dx)²，所以这里除 n²；n 在界面上突变多少，就折射 / 反射多少。
 		// 因为基础 cfl 已经贴着 0.5 的稳定上限，只能表达 n >= 1（比空气慢的介质）。
-		float n = max(m.g, 1.0);
+		float n = max(1.0 + clamp(m.g, 0.0, 1.0) * (ior_max - 1.0), 1.0);
 		float local_cfl = cfl / (n * n);
 		float un = 2.0 * u - um1 + local_cfl * lap;
 
@@ -154,6 +162,9 @@ void fragment() {
 			block = clamp(1.0 - m.b, 0.0, 1.0);
 		}
 		un *= (1.0 - block);
+		// 吸声：穿过这一格**内部**时被吃掉的那一份。墙已经被 block 清零，乘了也无害；
+		// 真正吃劲的是"透声但吸声"的材质（厚草丛、雾、水）——它们让波过去，但把它磨钝。
+		un *= 1.0 - texture(alpha_tex, UV).g * absorb_gain;
 		un *= damp;
 		// 开口方向的吸声层：走到房间边缘的能量就散了，不会掉头回来
 		un *= 1.0 - sponge_at(UV) * sponge_absorb * (1.0 - block);

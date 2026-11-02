@@ -61,7 +61,7 @@ func _apply_open(ring: bool) -> void:
 	_panel.visible = false
 	_panel_shape.set_deferred("disabled", true)
 
-	# 门板整块从几何里拿掉：不是 transmit = 1（那样 cover 还在，
+	# 门板整块从几何里拿掉：不是把 Z 调成 1（那样 cover 还在，
 	# 表面带还会给空气层留一圈高光），而是把声学体删掉。
 	# 门是单向的，删了不用再建。
 	if _panel_body != null:

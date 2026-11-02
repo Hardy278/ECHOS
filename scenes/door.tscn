@@ -41,12 +41,12 @@ shape = SubResource("RectangleShape2D_panel")
 [node name="TopBody" type="Node2D" parent="." unique_id=1509636443]
 script = ExtResource("2_body")
 visual = NodePath("../Top")
-transmit = 0.9
+Z = 1.7
 
 [node name="PanelBody" type="Node2D" parent="." unique_id=834071330]
 script = ExtResource("2_body")
 visual = NodePath("../Panel")
-transmit = 0.9
+Z = 1.7
 
 [node name="EchoSource" type="Node2D" parent="." unique_id=777376556]
 script = ExtResource("3_echo")

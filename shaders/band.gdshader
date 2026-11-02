@@ -1,23 +1,31 @@
 shader_type canvas_item;
 
-// 内侧表面带：有覆盖的格子里，到最近的空气 texel 的切比雪夫距离 <= band_px 的那些格子。
-// 严格 1 个 tile 像素厚。输出：R = 表面带强度。
+// 内侧表面带：有覆盖的格子里，到最近的空气 texel（或到另一种介质）的
+// 切比雪夫距离 <= band_px 的那些格子。严格 1 个 tile 像素厚。输出：R = 表面带强度。
 //
 // R 通道是**显现边缘**（surface）：0 = 这块砖不出高光，1 = 正常。
-// 它乘在这里，所以"表面带"从"拓扑自动产生"变成"拓扑 × 材质"，
-// 一块砖可以既挡声又不显轮廓（背景装饰就是这种）。
+//
+// 两种触发条件：
+//   1. 邻居是空气（没有覆盖）。地形和实体的轮廓都靠这条。
+//   2. 邻居是**另一种介质**（transmit 或 c 不同），且自己不是折射介质。
+//      没有这条，水和石头、玻璃和砖的交界根本不存在——水泡在石头里的那圈池壁
+//      就是它。折射介质（水、玻璃）不画自己的交界边：它们和空气的 Z 是匹配的，
+//      本来就没有回声，看得见的应该是**墙**被泡出来的那一圈。
 
 uniform sampler2D geo_tex : filter_nearest, repeat_disable;
 uniform vec2 field_size = vec2(480.0, 270.0);
 uniform int band_px = 2;
 
 const int MAX_BAND_PX = 4;
+// 通道是 RGBA8，1/255 一档，取 1.5 档当"不同介质"的门槛
+const float EPS = 0.006;
 
 void fragment() {
 	vec2 px = 1.0 / field_size;
 	vec4 self_tex = texture(geo_tex, UV);
 	float cov = step(0.5, self_tex.a);
 	float near_air = 0.0;
+	float near_other = 0.0;
 	for (int dy = -MAX_BAND_PX; dy <= MAX_BAND_PX; dy++) {
 		if (dy < -band_px || dy > band_px) {
 			continue;
@@ -26,11 +34,20 @@ void fragment() {
 			if (dx < -band_px || dx > band_px) {
 				continue;
 			}
-			if (texture(geo_tex, UV + vec2(float(dx), float(dy)) * px).a < 0.5) {
+			vec4 nb = texture(geo_tex, UV + vec2(float(dx), float(dy)) * px);
+			if (nb.a < 0.5) {
 				near_air = 1.0;
+			} else if (abs(nb.g - self_tex.g) > EPS || abs(nb.b - self_tex.b) > EPS) {
+				near_other = 1.0;
 			}
 		}
 	}
-	float b = cov * near_air * self_tex.r;
+	// 介质交界只画"硬"的那一侧：水和玻璃不画自己的交界边。
+	// 它们反射本来就近于 0（Z 贴着空气），所以看得见的是**墙被水泡出来的那一圈**，
+	// 而不是水的轮廓。水对自己和空气之间那条线仍然照画（上面的空气条件），
+	// 那是池子的可见边缘，留着。
+	float solid = 1.0 - step(EPS, self_tex.g);
+	float edge = max(near_air, near_other * solid);
+	float b = cov * edge * self_tex.r;
 	COLOR = vec4(b, b, b, 1.0);
 }

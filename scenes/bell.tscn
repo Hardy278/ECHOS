@@ -15,7 +15,7 @@ texture = ExtResource("4_sprite")
 
 [node name="Body" type="Node2D" parent="." unique_id=1317289924]
 script = ExtResource("5_body")
-transmit = 1.0
+Z = 1.0
 
 [node name="EchoSource" type="Node2D" parent="." unique_id=449883072]
 script = ExtResource("2_echo")
