@@ -18,8 +18,9 @@ extends Node2D
 @export_range(0.0, 1.0) var reverb := 0.0   ## 越大余晖衰减越慢，回声拖得越长
 @export_range(0.0, 1.0) var absorb := 0.0   ## 越大能量掉得越快，波走得越短
 
-## 固定顺序，不能改：EchoWorld 的层增益按这个下标取
-const LAYER_NAMES := ["ForeGround", "MidGround", "Background"]
+## 固定顺序，不能改：EchoWorld 的层参数按这个下标取。
+## 实体不是层——它们挂在房间里，靠 z_index 排在两层之间（见 LayerDef）。
+const LAYER_NAMES := ["ForeGround", "Background"]
 
 
 func _ready() -> void:

@@ -14,10 +14,9 @@ extends Node2D
 const WAVE_GEOMETRY := preload("res://scripts/wave/wave_geometry.gd")
 const LIGHT_VIEW_SHADER := preload("res://shaders/light_view.gdshader")
 const TILE_LIGHT_SHADER := preload("res://shaders/tile_light.gdshader")
-## 三层图块对光的响应：后景压暗，才读得出前后
-const LAYER_GAINS := [1.0, 0.80, 0.55]
 
-## 当前房间的三层图块（顺序与 LAYER_GAINS 一致，没有的层是 null）
+## 当前房间的图块层（顺序与 Room.LAYER_NAMES 一致，没有的层是 null）。
+## 层不再带"压暗系数"——背景暗多少由它自己那几种砖的 show 决定（tileset custom data）。
 var layers: Array = []
 ## 听者的位置（角色的坐标）：每个声源按"它在我这儿有多响"决定自己画多亮
 var listener := Vector2(240, 238)
@@ -29,6 +28,7 @@ var _display: CanvasLayer
 var _sources: Array = []
 var _views: Dictionary = {}   # 声源 → 它在合成层里的那个四边形
 var _entity_mat: ShaderMaterial
+var _white_tex: Texture2D
 
 
 func _enter_tree() -> void:
@@ -150,7 +150,9 @@ func _build_tile_materials() -> void:
 		m.set_shader_parameter("light_tex", _light_vp.get_texture())
 		m.set_shader_parameter("geo_tex", geometry_texture())
 		m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
-		m.set_shader_parameter("layer_gain", LAYER_GAINS[i])
+		# 每块砖"显现纹理"的值；拿不到就绑 1×1 白（= 全显示）
+		m.set_shader_parameter("display_tex",
+				geometry.call("display_texture") if geometry != null else _white())
 		layer.material = m
 
 
@@ -182,4 +184,15 @@ func _build_entity_material() -> void:
 	_entity_mat.set_shader_parameter("light_tex", _light_vp.get_texture())
 	_entity_mat.set_shader_parameter("geo_tex", geometry_texture())
 	_entity_mat.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
-	_entity_mat.set_shader_parameter("layer_gain", 1.0)
+	# 实体没有"每砖种"的概念，统一完全显示；要单独调就给那个实体一份自己的材质
+	_entity_mat.set_shader_parameter("display_tex", _white())
+
+
+## 1×1 白：show = 1 的"全显示"贴图。着色器绑不上纹理时采样会得到 0，
+## 那会让所有东西消失，所以任何缺省路径都必须给这张。
+func _white() -> Texture2D:
+	if _white_tex == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		img.fill(Color(1, 1, 1, 1))
+		_white_tex = ImageTexture.create_from_image(img)
+	return _white_tex
