@@ -13,6 +13,10 @@ extends Node2D
 
 const WAVE_GEOMETRY := preload("res://scripts/wave/wave_geometry.gd")
 const LIGHT_VIEW_SHADER := preload("res://shaders/light_view.gdshader")
+const BLEED_SHADER := preload("res://shaders/light_bleed.gdshader")
+## 光渗缓冲的分辨率：一个 texel = FIELD_SIZE / BLEED_SIZE = 8 个世界单位。
+## 分辨率只是"渗光的形状有多细"，跟"能渗多深"无关——后者由 decay 决定。
+const BLEED_SIZE := Vector2i(60, 34)
 const TILE_LIGHT_SHADER := preload("res://shaders/tile_light.gdshader")
 
 ## 当前房间的图块层（顺序与 Room.LAYER_NAMES 一致，没有的层是 null）。
@@ -22,13 +26,23 @@ var layers: Array = []
 var listener := Vector2(240, 238)
 var geometry: Node            # WaveGeometry
 
+## 光渗的衰减（每步）。0.62 ≈ 渗 2~3 个 tile 就暗下去。
+## 调大渗得更远（砖块内部更亮），调小只在表面附近亮。
+@export var bleed_decay := 0.62
+
 var _light_vp: SubViewport
 var _light_root: Control
+## 光渗缓冲：低分辨率 ping-pong 两块。让"撞到表面的光"渗进实体内部。
+## 不透声的格子里声场恒为 0，没有它的话砖块内部永远是黑的。
+var _bleed_vps: Array = []
+var _bleed_front := 0
+var _bleed_reset_frames := 0
 var _display: CanvasLayer
 var _sources: Array = []
 var _views: Dictionary = {}   # 声源 → 它在合成层里的那个四边形
 var _entity_mat: ShaderMaterial
 var _white_tex: Texture2D
+var _black_tex: Texture2D
 
 
 func _enter_tree() -> void:
@@ -42,6 +56,7 @@ func _ready() -> void:
 	geometry.setup([])        # 视口先建好，图块等房间绑进来
 
 	_build_light()
+	_build_bleed()
 	_build_display()
 	_build_entity_material()
 
@@ -50,6 +65,7 @@ func _process(_delta: float) -> void:
 	for s in _sources:
 		if is_instance_valid(s) and s.has_method("set_listener"):
 			s.set_listener(listener)
+	_step_bleed()
 
 
 # ---------------------------------------------------------------- 对外
@@ -59,6 +75,7 @@ func bind_room(room: Room) -> void:
 	if room == null:
 		return
 	layers = room.layers()
+	_clear_bleed()
 	_build_tile_materials()
 	if geometry != null:
 		geometry.rebind(layers)
@@ -70,6 +87,11 @@ func geometry_texture() -> Texture2D:
 
 func band_texture() -> Texture2D:
 	return geometry.band_texture() if geometry != null else null
+
+
+## 合成光（调试/探针用）
+func light_texture() -> Texture2D:
+	return _light_vp.get_texture() if _light_vp != null else null
 
 
 ## 实体（钟、机关、敌人）共用的一份材质：和 tile_light 是同一个着色器，
@@ -139,6 +161,104 @@ func _build_light() -> void:
 	_light_vp.add_child(_light_root)
 
 
+## 光渗缓冲：低分辨率 ping-pong。
+##
+## 一步只扩散一个低分辨率 texel（= 8 个世界单位），每帧迭代一次。
+## 这样"光往实体内部渗"是**随时间铺开**的，看起来像真的有光照进去，
+## 而不是一瞬间整块亮起。成本：60×34 × 9 次采样/帧，可忽略。
+func _build_bleed() -> void:
+	# 先把两个视口都建出来（材质要互相引用对方的纹理，必须两边都在）
+	for k in 2:
+		var vp := SubViewport.new()
+		vp.name = "Bleed%d" % k
+		vp.size = BLEED_SIZE
+		vp.disable_3d = true
+		vp.transparent_bg = false
+		vp.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		add_child(vp)
+		_bleed_vps.append(vp)
+
+	var low := Vector2(BLEED_SIZE)
+	var mats: Array = []
+	for k in 2:
+		var mat := ShaderMaterial.new()
+		mat.shader = BLEED_SHADER
+		# ping-pong：这一块读**另一块**的上一帧
+		mat.set_shader_parameter("src_tex",
+				(_bleed_vps[1 - k] as SubViewport).get_texture())
+		mat.set_shader_parameter("light_tex", _light_vp.get_texture())
+		mat.set_shader_parameter("low_size", low)
+		mat.set_shader_parameter("decay", bleed_decay)
+		mat.set_shader_parameter("reset", 0.0)
+		mats.append(mat)
+
+		var cr := ColorRect.new()
+		cr.size = low
+		cr.material = mat
+		cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		(_bleed_vps[k] as SubViewport).add_child(cr)
+
+
+## 当前"渗开的光"。tile_light 拿它和局部光取 max。
+func bleed_texture() -> Texture2D:
+	if _bleed_vps.is_empty():
+		return null
+	return (_bleed_vps[_bleed_front] as SubViewport).get_texture()
+
+
+## 每帧往前推一步。换房间时清空，别把上一间的光带过来。
+func _step_bleed() -> void:
+	if _bleed_vps.size() < 2:
+		return
+
+	# 清场窗口：两块都写黑，不推进
+	if _bleed_reset_frames > 0:
+		_bleed_reset_frames -= 1
+		var on := _bleed_reset_frames > 0
+		for vp in _bleed_vps:
+			_set_bleed_reset(vp, on)
+			(vp as SubViewport).render_target_update_mode = SubViewport.UPDATE_ONCE
+		return
+
+	var back := 1 - _bleed_front
+	# 采样器必须**每步**重绑：在 _build_bleed 里一次性设好不管用（实测绑不上，
+	# 采样器保持默认白，于是 max(0.62, 1) = 1，整个缓冲被填成 1）。
+	var mat := _bleed_material(back)
+	if mat != null:
+		mat.set_shader_parameter("src_tex",
+				(_bleed_vps[_bleed_front] as SubViewport).get_texture())
+		mat.set_shader_parameter("light_tex", _light_vp.get_texture())
+		mat.set_shader_parameter("decay", bleed_decay)
+	(_bleed_vps[back] as SubViewport).render_target_update_mode = SubViewport.UPDATE_ONCE
+	_bleed_front = back
+	(_bleed_vps[1 - back] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
+
+
+func _bleed_material(k: int) -> ShaderMaterial:
+	if k < 0 or k >= _bleed_vps.size():
+		return null
+	var cr := (_bleed_vps[k] as SubViewport).get_child(0)
+	return cr.material as ShaderMaterial if cr != null else null
+
+
+func _set_bleed_reset(vp: Node, on: bool) -> void:
+	var cr := (vp as SubViewport).get_child(0)
+	if cr == null or cr.material == null:
+		return
+	var mat := cr.material as ShaderMaterial
+	mat.set_shader_parameter("reset", 1.0 if on else 0.0)
+	# 清场帧也要绑一次：reset 那一帧不读采样器，但下一帧要接上正确的那块
+	mat.set_shader_parameter("light_tex", _light_vp.get_texture())
+
+
+## 换房间时清场。用帧计数而不是 await：
+## 一个节点的协程在节点被释放后很麻烦，而这里只要"两帧写黑"就够了。
+func _clear_bleed() -> void:
+	_bleed_reset_frames = 2
+	_bleed_front = 0
+
+
 ## 三层的图块材质：被"总的照亮"照亮才显形，暗处透明
 func _build_tile_materials() -> void:
 	for i in layers.size():
@@ -153,6 +273,8 @@ func _build_tile_materials() -> void:
 		# 每块砖"显现纹理"的值；拿不到就绑 1×1 白（= 全显示）
 		m.set_shader_parameter("display_tex",
 				geometry.call("display_texture") if geometry != null else _white())
+		# 渗进实体内部的那一份光：没有它，砖块内部永远是黑的
+		m.set_shader_parameter("bleed_tex", bleed_texture() if bleed_texture() != null else _black())
 		layer.material = m
 
 
@@ -186,6 +308,17 @@ func _build_entity_material() -> void:
 	_entity_mat.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
 	# 实体没有"每砖种"的概念，统一完全显示；要单独调就给那个实体一份自己的材质
 	_entity_mat.set_shader_parameter("display_tex", _white())
+	_entity_mat.set_shader_parameter("bleed_tex",
+			bleed_texture() if bleed_texture() != null else _black())
+
+
+## 1×1 黑：光渗没准备好时的兜底。**不能给白**——那会让全世界都亮起来。
+func _black() -> Texture2D:
+	if _black_tex == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		img.fill(Color(0, 0, 0, 1))
+		_black_tex = ImageTexture.create_from_image(img)
+	return _black_tex
 
 
 ## 1×1 白：show = 1 的"全显示"贴图。着色器绑不上纹理时采样会得到 0，

@@ -13,6 +13,12 @@ uniform sampler2D light_tex : filter_linear, repeat_disable;
 uniform sampler2D geo_tex : filter_nearest, repeat_disable;
 // 每块砖"显现纹理"的值（R）+ 覆盖（A）。和 geo_tex 一样按世界 UV 采样。
 uniform sampler2D display_tex : filter_nearest, repeat_disable;
+// 渗进实体内部的那一份光（低分辨率、线性过滤）。
+// 不透声的格子里声场恒为 0，没有它的话砖块内部永远是黑的。
+uniform sampler2D bleed_tex : filter_linear, repeat_disable;
+uniform float bleed_gain = 1.0;      // 渗光强度倍率
+// 渗光给本体染色的强度：0 = 永远是 flat_color（灰蓝），越大越跟着光走
+uniform float bleed_tint = 4.0;
 uniform vec2 field_size = vec2(480.0, 270.0);
 
 uniform float gain = 1.0;            // 图块对光的响应
@@ -35,7 +41,13 @@ void vertex() {
 void fragment() {
 	vec2 uv = world_pos / field_size;
 
+	// 渗光：砖块内部本来是 0（不透声 → 场为 0），靠这一项才有"内部亮起来"。
+	// 保留颜色——渗进来的光是**声源的颜色**，不是亮度。
+	vec3 bleed = texture(bleed_tex, uv).rgb * bleed_gain;
+	float bl = max(max(bleed.r, bleed.g), bleed.b);
+
 	float l = dot(texture(light_tex, uv).rgb, vec3(0.299, 0.587, 0.114));
+	l = max(l, bl);
 
 	// 本体不透明度只跟"这个点有多亮"有关。
 	// R 通道（surface）不在这里用——它管的是"出不出边缘高光"，交给 band 那边。
@@ -51,5 +63,14 @@ void fragment() {
 	// 不告诉你它本来是砖红还是草绿。
 	float art = clamp(dot(COLOR.rgb, vec3(0.299, 0.587, 0.114)) * art_gain, 0.0, 1.0);
 	art = mix(art_floor, 1.0, art);   // 黑 = 最暗的图案，不是"没有"
-	COLOR = vec4(flat_color * art, COLOR.a * v * silhouette * show);
+
+	// 本体颜色：默认是 cold 的 flat_color（"声音只告诉你形状"）。
+	// 但只要这一带有渗进来的光，就往**光的颜色**偏——于是墙内部会显示成
+	// 照亮它的那盏声源的颜色（玩家是暖黄、钟是橙），而不是一片灰。
+	vec3 col = flat_color;
+	if (bl > 0.001) {
+		col = mix(flat_color, bleed / bl, clamp(bl * bleed_tint, 0.0, 1.0));
+	}
+
+	COLOR = vec4(col * art, COLOR.a * v * silhouette * show);
 }
