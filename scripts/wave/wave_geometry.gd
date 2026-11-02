@@ -27,6 +27,8 @@ const DEFAULT_ONE_WAY_SHOW := 0.8
 ## 折射介质默认的"显现纹理"值：0.6。它以前是 tile_light 里一句
 ## `g.g > 1.01 ? 0.6 : 1.0` 的硬编码（水看起来要"暗一点、像看进去"）。
 const DEFAULT_REFRACTIVE_SHOW := 0.6
+## 层表里没有实体层时的兜底 z：压在所有图块层之上
+const ENTITY_Z_FALLBACK := 3
 const MAX_BAND_PX := 4
 
 ## 1 个 tile 像素 = 几个场 texel。由图层缩放推出（2 倍缩放 → 2），不写死。
@@ -130,6 +132,14 @@ func _drop_mirrors() -> void:
 func _sync_shapes() -> void:
 	if _canvas == null:
 		return
+
+	var def := _entity_layer()
+	if def != null and not def.acoustic:
+		# 实体层被设成纯装饰：不建声学形状（已经建好的由 _sweep_shapes 收掉）
+		_sweep_shapes()
+		return
+	var z := def.z if def != null else ENTITY_Z_FALLBACK
+
 	for n in get_tree().get_nodes_in_group("acoustic_shapes"):
 		var shape := n as AcousticShape
 		if shape == null:
@@ -142,9 +152,19 @@ func _sync_shapes() -> void:
 			mirror.material = _body_material()
 			_canvas.add_child(mirror)
 			_shapes[shape] = mirror
+		# 实体的合成 z 由层表决定（默认 3：压在所有图块层之上）
+		mirror.z_index = z
 		shape.pose_mirror(mirror)
 		_apply_shape_params(shape, mirror)
 	_sweep_shapes()
+
+
+## 实体层定义。拿不到就返回 null，调用方退回默认值。
+func _entity_layer() -> EchoLayer:
+	for l in EchoLayers.layers():
+		if l.kind == EchoLayer.Kind.ENTITY:
+			return l
+	return null
 
 
 func _body_material() -> ShaderMaterial:
@@ -247,11 +267,13 @@ func _build_band_view() -> void:
 
 
 ## 图层缩放 → "1 个 tile 像素"在场里占几个 texel
+## （只看参与声学的层：纯装饰层不画进几何，缩放不该影响 band 厚度）
 func _derive_band_px() -> int:
 	var s := 1.0
-	for l in _layers:
-		var layer := l as TileMapLayer
-		if layer == null:
+	for b in _layers:
+		var layer := b.node as TileMapLayer
+		var def := b.def as EchoLayer
+		if layer == null or (def != null and not def.acoustic):
 			continue
 		s = maxf(s, (absf(layer.global_scale.x) + absf(layer.global_scale.y)) * 0.5)
 	return clampi(roundi(s), 1, MAX_BAND_PX)
@@ -268,17 +290,23 @@ func rebuild() -> void:
 		m.clear()
 
 	for li in _layers.size():
-		var layer := _layers[li] as TileMapLayer
+		var b: Dictionary = _layers[li]
+		var layer := b.node as TileMapLayer
+		var def := b.def as EchoLayer
 		if layer == null or layer.tile_set == null:
 			continue
+		# 纯装饰层不进几何：不挡声、不长表面带，也省掉一整套镜像
+		if def != null and not def.acoustic:
+			continue
+		var z := def.z if def != null else li
 		for cell in layer.get_used_cells():
 			var src := layer.get_cell_source_id(cell)
 			if src < 0:
 				continue
 			var coords := layer.get_cell_atlas_coords(cell)
 			var alt := layer.get_cell_alternative_tile(cell)
-			_mirror_for(li, layer, src, false).set_cell(cell, src, coords, alt)
-			_mirror_for(li, layer, src, true).set_cell(cell, src, coords, alt)
+			_mirror_for(li, layer, src, false, z).set_cell(cell, src, coords, alt)
+			_mirror_for(li, layer, src, true, z).set_cell(cell, src, coords, alt)
 
 
 func _all_mirrors() -> Array:
@@ -292,7 +320,8 @@ func _all_mirrors() -> Array:
 	return out
 
 
-func _mirror_for(li: int, layer: TileMapLayer, src: int, display: bool) -> TileMapLayer:
+func _mirror_for(li: int, layer: TileMapLayer, src: int, display: bool,
+		z_index: int) -> TileMapLayer:
 	var store := _display_mirrors if display else _mirrors
 	var canvas := _display_canvas if display else _canvas
 	var per_src: Dictionary = store.get(li, {})
@@ -306,7 +335,8 @@ func _mirror_for(li: int, layer: TileMapLayer, src: int, display: bool) -> TileM
 	m.collision_enabled = false      # 只出图，不参与物理
 	m.occlusion_enabled = false
 	m.texture_filter = layer.texture_filter
-	m.z_index = 2 - li                # 后景先画、前景后画 → 前景覆盖
+	# z 来自层表（小 = 底层）。实体镜像固定 z=3，永远在最上面。
+	m.z_index = z_index
 	m.material = (_display_material if display else _geo_material).call(src)
 	canvas.add_child(m)
 	m.global_transform = layer.global_transform
@@ -412,8 +442,8 @@ func _params_atlas(src: int) -> Texture2D:
 
 
 func _find_tileset() -> TileSet:
-	for l in _layers:
-		var layer := l as TileMapLayer
+	for b in _layers:
+		var layer := b.node as TileMapLayer
 		if layer != null and layer.tile_set != null:
 			return layer.tile_set
 	return null

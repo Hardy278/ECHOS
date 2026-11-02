@@ -22,6 +22,10 @@ uniform float bleed_tint = 4.0;
 uniform vec2 field_size = vec2(480.0, 270.0);
 
 uniform float gain = 1.0;            // 图块对光的响应
+// 这一层的默认显示倍率（来自层表）。只作用在图块上——实体有自己的材质。
+// 注意它乘在**clamp 之后**的 alpha 上，所以它改的是"最多能有多不透明"，
+// 不是"多容易饱和"。
+uniform float light_gain = 1.0;
 uniform float floor_gain = 0.0;      // 全黑时的底噪；要"彻底黑"就保持 0
 
 // 声呐外观：所有图块共用一个色，但保留贴图的**图案**（砖缝、草叶的形状）
@@ -72,5 +76,5 @@ void fragment() {
 		col = mix(flat_color, bleed / bl, clamp(bl * bleed_tint, 0.0, 1.0));
 	}
 
-	COLOR = vec4(col * art, COLOR.a * v * silhouette * show);
+	COLOR = vec4(col * art, COLOR.a * v * silhouette * show * light_gain);
 }

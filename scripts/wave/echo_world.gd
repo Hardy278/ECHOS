@@ -22,6 +22,8 @@ const TILE_LIGHT_SHADER := preload("res://shaders/tile_light.gdshader")
 ## 当前房间的图块层（顺序与 Room.LAYER_NAMES 一致，没有的层是 null）。
 ## 层不再带"压暗系数"——背景暗多少由它自己那几种砖的 show 决定（tileset custom data）。
 var layers: Array = []
+## 当前房间的层绑定：[{def: EchoLayer, node: TileMapLayer}]，z 升序
+var _bindings: Array = []
 ## 听者的位置（角色的坐标）：每个声源按"它在我这儿有多响"决定自己画多亮
 var listener := Vector2(240, 238)
 var geometry: Node            # WaveGeometry
@@ -75,10 +77,11 @@ func bind_room(room: Room) -> void:
 	if room == null:
 		return
 	layers = room.layers()
+	_bindings = room.bindings()
 	_clear_bleed()
 	_build_tile_materials()
 	if geometry != null:
-		geometry.rebind(layers)
+		geometry.rebind(_bindings)
 
 
 func geometry_texture() -> Texture2D:
@@ -259,17 +262,20 @@ func _clear_bleed() -> void:
 	_bleed_front = 0
 
 
-## 三层的图块材质：被"总的照亮"照亮才显形，暗处透明
+## 每层的图块材质：被"总的照亮"照亮才显形，暗处透明
 func _build_tile_materials() -> void:
-	for i in layers.size():
-		var layer := layers[i] as TileMapLayer
-		if layer == null:
+	for b in _bindings:
+		var layer := b.node as TileMapLayer
+		var def := b.def as EchoLayer
+		if layer == null or def == null:
 			continue
 		var m := ShaderMaterial.new()
 		m.shader = TILE_LIGHT_SHADER
 		m.set_shader_parameter("light_tex", _light_vp.get_texture())
 		m.set_shader_parameter("geo_tex", geometry_texture())
 		m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
+		# 这一层的默认显示倍率（只作用在图块上，实体有自己的材质）
+		m.set_shader_parameter("light_gain", def.light_gain)
 		# 每块砖"显现纹理"的值；拿不到就绑 1×1 白（= 全显示）
 		m.set_shader_parameter("display_tex",
 				geometry.call("display_texture") if geometry != null else _white())
@@ -310,6 +316,9 @@ func _build_entity_material() -> void:
 	_entity_mat.set_shader_parameter("display_tex", _white())
 	_entity_mat.set_shader_parameter("bleed_tex",
 			bleed_texture() if bleed_texture() != null else _black())
+	# 实体层的显示倍率（来自层表）。实体不会被图块层的 light_gain 影响。
+	var edef := EchoLayers.entity_layer()
+	_entity_mat.set_shader_parameter("light_gain", edef.light_gain if edef != null else 1.0)
 
 
 ## 1×1 黑：光渗没准备好时的兜底。**不能给白**——那会让全世界都亮起来。
