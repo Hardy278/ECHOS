@@ -1,0 +1,31 @@
+[gd_scene format=3 uid="uid://1bpgpr23o8cq"]
+
+[ext_resource type="Script" uid="uid://brpdymmxn3bnl" path="res://scripts/object/flower.gd" id="1_flower"]
+[ext_resource type="Script" uid="uid://ldn7840l42f8" path="res://scripts/wave/acoustic_body.gd" id="2_body"]
+[ext_resource type="Texture2D" uid="uid://bc783w8yos884" path="res://sprites/flowers.png" id="3_art"]
+[ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="4_echo"]
+[ext_resource type="Script" uid="uid://cbwf5gq8rudy1" path="res://scripts/object/abilities/periodic_ability.gd" id="5_hum"]
+
+[node name="Flower" type="Node2D" unique_id=601167432]
+script = ExtResource("1_flower")
+
+[node name="Sprite" type="Sprite2D" parent="." unique_id=172448000]
+texture_filter = 1
+scale = Vector2(2, 2)
+texture = ExtResource("3_art")
+
+[node name="Body" type="Node2D" parent="." unique_id=1987821701]
+script = ExtResource("2_body")
+Z = 1.0
+
+[node name="Echo" type="Node2D" parent="." unique_id=1903653970]
+script = ExtResource("4_echo")
+damp = 0.97
+env_decay = 0.99
+emit_radius = 12.0
+tint = Color(0.8745098, 0.7176471, 0, 0.9882353)
+
+[node name="Hum" type="Node" parent="Echo" unique_id=1884213768]
+script = ExtResource("5_hum")
+period = 0.1
+amp = 0.03

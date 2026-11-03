@@ -11,6 +11,10 @@ shader_type canvas_item;
 //      没有这条，水和石头、玻璃和砖的交界根本不存在——水泡在石头里的那圈池壁
 //      就是它。折射介质（水、玻璃）不画自己的交界边：它们和空气的 Z 是匹配的，
 //      本来就没有回声，看得见的应该是**墙**被泡出来的那一圈。
+//
+// **这条只在图块之间生效**：实体（草、门、钟、花）写进几何纹理的 A 是 0.7，
+// 图块写 1.0（都算"有覆盖"，但能分开认）。实体贴着地形时不是"两种材质相撞"，
+// 是同一样东西的前后关系——在那里画一条边，看起来就是实体和地面之间裂了道缝。
 
 uniform sampler2D geo_tex : filter_nearest, repeat_disable;
 uniform vec2 field_size = vec2(480.0, 270.0);
@@ -19,6 +23,12 @@ uniform int band_px = 2;
 const int MAX_BAND_PX = 4;
 // 通道是 RGBA8，1/255 一档，取 1.5 档当"不同介质"的门槛
 const float EPS = 0.006;
+// 实体写的 A（图块是 1.0）
+const float ENTITY_A = 0.7;
+
+bool is_entity(vec4 t) {
+	return t.a < 0.9;
+}
 
 void fragment() {
 	vec2 px = 1.0 / field_size;
@@ -37,7 +47,8 @@ void fragment() {
 			vec4 nb = texture(geo_tex, UV + vec2(float(dx), float(dy)) * px);
 			if (nb.a < 0.5) {
 				near_air = 1.0;
-			} else if (abs(nb.g - self_tex.g) > EPS || abs(nb.b - self_tex.b) > EPS) {
+			} else if (!is_entity(nb) && !is_entity(self_tex)
+					&& (abs(nb.g - self_tex.g) > EPS || abs(nb.b - self_tex.b) > EPS)) {
 				near_other = 1.0;
 			}
 		}

@@ -1,7 +1,6 @@
 [gd_scene format=3 uid="uid://beerwoiqyy3ws"]
 
 [ext_resource type="Script" uid="uid://crawlthrqa610" path="res://scripts/object/player.gd" id="1_player"]
-[ext_resource type="Script" uid="uid://c0w4xxxunx8qa" path="res://scripts/object/grass_trample.gd" id="3_grass"]
 [ext_resource type="Script" uid="uid://cbwf5gq8rudy1" path="res://scripts/object/abilities/periodic_ability.gd" id="4_hb"]
 [ext_resource type="Script" uid="uid://cqback518c0u2" path="res://scripts/object/abilities/landing_ability.gd" id="5_land"]
 [ext_resource type="Script" uid="uid://bfreja5uljpx" path="res://scripts/object/abilities/shout_ability.gd" id="6_shout"]
@@ -48,5 +47,3 @@ script = ExtResource("9_drown")
 amp = 0.2
 steps = 2
 
-[node name="GrassTrample" type="Node2D" parent="." unique_id=1353151571]
-script = ExtResource("3_grass")

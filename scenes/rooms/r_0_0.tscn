@@ -6,6 +6,8 @@
 [ext_resource type="Script" uid="uid://cfsch8am7iraf" path="res://scripts/world/checkpoint.gd" id="4_cp"]
 [ext_resource type="PackedScene" uid="uid://b4jbqdsae77fd" path="res://scenes/door.tscn" id="5_uk54w"]
 [ext_resource type="PackedScene" uid="uid://dqd5i3l48d7v" path="res://scenes/hanging_grass.tscn" id="6_grass"]
+[ext_resource type="PackedScene" uid="uid://1bpgpr23o8cq" path="res://scenes/flower.tscn" id="7_i87m8"]
+[ext_resource type="PackedScene" uid="uid://db5an703xu37n" path="res://scenes/ground_grass.tscn" id="10_2172q"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_cp"]
 size = Vector2(16, 74)
@@ -25,7 +27,6 @@ tile_set = ExtResource("2_sugp2")
 [node name="Background" type="TileMapLayer" parent="." unique_id=1724808803]
 z_index = -2
 scale = Vector2(2, 2)
-tile_map_data = PackedByteArray("AAAJAA4AAgAEAAAAAAALAA4AAgAEAAAAAAAXAAcAAgAEAAAAAAA=")
 tile_set = ExtResource("2_sugp2")
 
 [node name="Checkpoint" type="Area2D" parent="." unique_id=393644333]
@@ -53,30 +54,49 @@ position = Vector2(456, 104)
 channels = Array[StringName]([&"r0_0.sw1", &"r0_0.sw2"])
 id = &"r0_0.gate1"
 
-[node name="HangingGrass" parent="." unique_id=1574372115 instance=ExtResource("6_grass")]
-position = Vector2(390, 64)
+[node name="Grass" type="Node2D" parent="." unique_id=295178619]
 
-[node name="HangingGrass2" parent="." unique_id=26479011 instance=ExtResource("6_grass")]
+[node name="Grass_9_14" parent="Grass" unique_id=2118690201 instance=ExtResource("10_2172q")]
+position = Vector2(152, 232)
+
+[node name="Grass_11_14" parent="Grass" unique_id=1348122133 instance=ExtResource("10_2172q")]
+position = Vector2(184, 232)
+
+[node name="Grass_23_7" parent="Grass" unique_id=374769704 instance=ExtResource("10_2172q")]
+position = Vector2(376, 120)
+
+[node name="Flower" parent="Grass" unique_id=601167432 instance=ExtResource("7_i87m8")]
+position = Vector2(120, 232)
+
+[node name="Flower2" parent="Grass" unique_id=1326567727 instance=ExtResource("7_i87m8")]
+position = Vector2(218, 232)
+
+[node name="HangingGrass6" type="Node2D" parent="." unique_id=784148271]
+
+[node name="HangingGrass8" parent="HangingGrass6" unique_id=1470381885 instance=ExtResource("6_grass")]
+position = Vector2(410, 64)
+segments = 5
+
+[node name="HangingGrass7" parent="HangingGrass6" unique_id=96761131 instance=ExtResource("6_grass")]
+position = Vector2(100, 96)
+segments = 5
+
+[node name="HangingGrass5" parent="HangingGrass6" unique_id=723534311 instance=ExtResource("6_grass")]
+position = Vector2(40, 128)
+segments = 5
+
+[node name="HangingGrass4" parent="HangingGrass6" unique_id=730218826 instance=ExtResource("6_grass")]
+position = Vector2(214, 80)
+segments = 5
+
+[node name="HangingGrass3" parent="HangingGrass6" unique_id=469800711 instance=ExtResource("6_grass")]
+position = Vector2(232, 64)
+segments = 15
+
+[node name="HangingGrass2" parent="HangingGrass6" unique_id=26479011 instance=ExtResource("6_grass")]
 position = Vector2(252, 64)
 segments = 8
 jitter = 0.667
 
-[node name="HangingGrass3" parent="." unique_id=469800711 instance=ExtResource("6_grass")]
-position = Vector2(232, 64)
-segments = 15
-
-[node name="HangingGrass4" parent="." unique_id=730218826 instance=ExtResource("6_grass")]
-position = Vector2(214, 80)
-segments = 5
-
-[node name="HangingGrass5" parent="." unique_id=723534311 instance=ExtResource("6_grass")]
-position = Vector2(40, 128)
-segments = 5
-
-[node name="HangingGrass7" parent="." unique_id=96761131 instance=ExtResource("6_grass")]
-position = Vector2(100, 96)
-segments = 5
-
-[node name="HangingGrass7" parent="HangingGrass7" unique_id=1470381885 instance=ExtResource("6_grass")]
-position = Vector2(310, -32)
-segments = 5
+[node name="HangingGrass" parent="HangingGrass6" unique_id=1574372115 instance=ExtResource("6_grass")]
+position = Vector2(390, 64)

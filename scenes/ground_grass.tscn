@@ -1,0 +1,26 @@
+[gd_scene format=3 uid="uid://db5an703xu37n"]
+
+[ext_resource type="Script" uid="uid://bx12k6xelpp66" path="res://scripts/object/ground_grass.gd" id="1_grass"]
+[ext_resource type="SpriteFrames" uid="uid://8ema73824brg" path="res://sprites/grass_sprite_frames.tres" id="2_7jyov"]
+[ext_resource type="Script" uid="uid://ldn7840l42f8" path="res://scripts/wave/acoustic_body.gd" id="2_body"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_area"]
+size = Vector2(16, 16)
+
+[node name="GroundGrass" type="Area2D" unique_id=122448546]
+script = ExtResource("1_grass")
+
+[node name="Sprite" type="AnimatedSprite2D" parent="." unique_id=119006565]
+texture_filter = 1
+position = Vector2(-2.3841858e-07, 2.3841858e-07)
+scale = Vector2(2, 2)
+sprite_frames = ExtResource("2_7jyov")
+animation = &"swing"
+frame_progress = 0.9075302
+
+[node name="Collision" type="CollisionShape2D" parent="." unique_id=1625051220]
+shape = SubResource("RectangleShape2D_area")
+
+[node name="Body" type="Node2D" parent="." unique_id=197141643]
+script = ExtResource("2_body")
+Z = 1.0
