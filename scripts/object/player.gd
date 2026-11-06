@@ -10,6 +10,10 @@ extends CharacterBody2D
 ## 位移和发声都归角色自己。
 
 signal landed(strength: float)
+## 激波推进的开始 / 结束。音频（ThrustAbility）听这两个信号；
+## 声场那边每帧的注入不受影响——那是激波的形状，一帧都不能少。
+signal dash_started
+signal dash_ended
 
 const GameConst := preload("res://scripts/world/constants.gd")
 
@@ -64,7 +68,7 @@ func stand() -> void:
 	_seated = false
 
 
-## 发射：恒定功率加速，无视重力、不能跳、不能改向。撞墙或时间到就结束。
+## 激波推进：恒定功率加速，无视重力、不能跳、不能改向。撞墙或时间到就结束。
 func launch(dir: float, power: float, max_speed: float, duration: float) -> void:
 	_seated = false
 	_dash_dir = signf(dir) if not is_zero_approx(dir) else 1.0
@@ -72,6 +76,7 @@ func launch(dir: float, power: float, max_speed: float, duration: float) -> void
 	_dash_max = max_speed
 	_dash_power = power
 	_dash_left = duration
+	dash_started.emit()
 
 
 # ---------------------------------------------------------------- 帧
@@ -122,6 +127,7 @@ func _step_dash(delta: float) -> void:
 		_dash_dir = 0.0
 		_dash_speed = 0.0
 		_dash_left = 0.0
+		dash_ended.emit()
 
 
 ## 角色存在时间, 基于此算角色的呼吸感.
@@ -129,6 +135,13 @@ var _t := 0.0
 
 @onready var _sprite: Sprite2D = $Sprite
 @onready var _echo: EchoSource = $Echo
+@onready var _listener: AudioListener2D = $AudioListener
+
+
+func _ready() -> void:
+	# 相机钉在房间中心不动，2D 声像的基准必须是角色自己，不是屏幕中心。
+	# 不设这个，引擎会把"偏右"算成相对 (240,135) 的偏右，而不是相对你的耳朵。
+	_listener.make_current()
 
 func _process(delta: float) -> void:
 	# 心跳微光。写在 Sprite 上而不是自己身上：自己的 modulate 留给溺水淡出，

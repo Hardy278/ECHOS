@@ -6,11 +6,19 @@ extends Node
 ## 发到哪里由目标决定，沿父链找"自己就是声源"的祖先：
 ##   - 钟：Bell/EchoSource/Tick → 找到 EchoSource
 ##   - 角色：Player/Echo/Shout → 找到 EchoSource
-
+##
+## 一次 `fire()` = 往声场里注入 + 往耳朵里播。两件事同一个入口，
+## 所以不会出现"看得见听不见"的半条声音。
 
 @export var amp := 0.5      ## 声音的强弱
 @export var steps := 1      ## 声音持续几个 step（物理模拟步数）
 @export var cooldown := 0.0 ## 声音的冷却时间
+
+@export_group("音频")
+## 这条能力发什么声。留空 = 没做素材，整条链路静默（不报错、不占声道）。
+@export var audio: AudioProfile
+## 一次性声音的去重键。同一把门用同一个 key 才能吃到 profile.min_interval。
+@export var audio_key := ""
 
 var _cd := 0.0
 var _target: Node
@@ -48,12 +56,15 @@ func fire(strength: float) -> bool:
 		return false
 	_cd = cooldown
 	t.emit_sound(_origin(), _amp_for(strength), steps)
+	play_audio()          # ← 同一个入口：声场和耳朵一起响
 	return true
 
 
 func cooldown_left() -> float:
 	return _cd
 
+
+# ---------------------------------------------------------------- 音频
 
 func _origin() -> Vector2:
 	# 能力是 Node，声源是 Node2D，所以沿父链找最近的 Node2D 当发声点
@@ -63,6 +74,22 @@ func _origin() -> Vector2:
 			return (n as Node2D).global_position
 		n = n.get_parent()
 	return Vector2.ZERO
+
+
+## 按 profile 的模式播一声。ONE_SHOT 播一遍，SUSTAINED 续期一条循环。
+func play_audio() -> void:
+	if audio == null or audio.is_silent():
+		return
+	if audio.mode == AudioProfile.Mode.SUSTAINED:
+		Audio.sustain(audio, _origin(), self)
+	else:
+		Audio.play(audio, _origin(), audio_key)
+
+
+## 收掉这条能力持有的循环（激波推进结束之类）。
+func stop_audio() -> void:
+	if audio != null:
+		Audio.release(audio)
 
 
 func _get_target() -> Node:

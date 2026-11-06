@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="AudioProfile" format=3 uid="uid://dly3idk1rpyv5"]
+
+[ext_resource type="Script" uid="uid://cpbbwl8jtwt8t" path="res://scripts/audio/audio_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+mode = 1
+volume_db = -10.0
+importance = 7
