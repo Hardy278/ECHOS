@@ -286,6 +286,10 @@ func _build_tile_materials() -> void:
 				geometry.call("display_texture") if geometry != null else _white())
 		# 渗进实体内部的那一份光：没有它，砖块内部永远是黑的
 		m.set_shader_parameter("bleed_tex", bleed_texture() if bleed_texture() != null else _black())
+		# 不进几何的层（背景）是"纯画面"：它会透过前景瓦片露出来，
+		# 而前景的渗光本身很淡，底下压一块更亮的背景就被吃掉了。
+		# 用前景的覆盖把它镂空，两边不再抢同一个像素。
+		m.set_shader_parameter("behind_only", 0.0 if def.acoustic else 1.0)
 		layer.material = m
 
 

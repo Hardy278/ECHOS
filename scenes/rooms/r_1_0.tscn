@@ -1,7 +1,7 @@
 [gd_scene format=4 uid="uid://dijjn6e3e8kal"]
 
 [ext_resource type="Script" uid="uid://dt8o0apq3l7n" path="res://scripts/world/room.gd" id="1_dauqb"]
-[ext_resource type="TileSet" uid="uid://dqm0chntm42cb" path="res://tiles/tileset.tres" id="2_tktnf"]
+[ext_resource type="TileSet" uid="uid://dqm0chntm42cb" path="res://tiles/foreground_tile.tres" id="2_tktnf"]
 
 [node name="Room2" type="Node2D" unique_id=1097833614]
 script = ExtResource("1_dauqb")

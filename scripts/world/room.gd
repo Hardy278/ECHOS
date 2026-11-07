@@ -54,15 +54,23 @@ func acoustics() -> Vector2:
 	return Vector2(reverb, absorb)
 
 
-## 三层必须共用同一份 TileSet：声学参数表和表面带都是按图集算的
+## 每层的 TileSet 现在**可以不同**（背景 / 前景各一份），所以不再要求"三层共用"。
+## 真正会让参数静默错位的是**缺少 custom data 层**：参数图是按名字找层的
+## （ior / absorb / Z / water / show / alpha），少一个就退回默认值——
+## 画面和声音都不会报错，只会"莫名其妙不对"。这里把它变成一条警告。
+const REQUIRED_DATA := ["ior", "absorb", "Z", "water", "show", "alpha"]
+
 func _validate_layers() -> void:
-	var first: TileSet = null
+	var checked := {}
 	for l in layers():
 		var layer := l as TileMapLayer
 		if layer == null or layer.tile_set == null:
 			continue
-		if first == null:
-			first = layer.tile_set
-		elif layer.tile_set != first:
-			push_warning("Room %s: 三层的 TileSet 不一致，声学几何会取错参数表" % name)
-			return
+		var ts := layer.tile_set
+		if checked.has(ts):
+			continue
+		checked[ts] = true
+		for data_name in REQUIRED_DATA:
+			if ts.get_custom_data_layer_by_name(data_name) < 0:
+				push_warning("Room %s: TileSet「%s」缺 custom data 层「%s」，这层的砖会退回默认值"
+						% [name, ts.resource_path.get_file(), data_name])

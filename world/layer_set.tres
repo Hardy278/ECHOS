@@ -9,7 +9,7 @@ kind = 0
 path = NodePath("Background")
 z = 0
 light_gain = 1.0
-acoustic = true
+acoustic = false
 
 [sub_resource type="Resource" id="Layer_fore"]
 script = ExtResource("2_layer")

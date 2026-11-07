@@ -49,10 +49,10 @@ var _mirrors: Dictionary = {}      # {图层下标: {source_id: TileMapLayer}}
 var _display_mirrors: Dictionary = {}   # 同上，但画进显示视口
 var _shapes: Dictionary = {}       # AcousticShape → CanvasItem（画在几何视口里的声学形状）
 var _shape_display: Dictionary = {}  # 同上，但画进显示视口（只写 α）
-var _atlas_cache: Dictionary = {}  # source_id → 几何参数图
-var _display_atlas_cache: Dictionary = {}  # source_id → 显示参数图
-var _mat_cache: Dictionary = {}    # source_id → 几何材质
-var _display_mat_cache: Dictionary = {}  # source_id → 显示材质
+var _atlas_cache: Dictionary = {}  # 缓存键 → 几何参数图
+var _display_atlas_cache: Dictionary = {}  # 缓存键 → 显示参数图
+var _mat_cache: Dictionary = {}    # 缓存键 → 几何材质
+var _display_mat_cache: Dictionary = {}  # 缓存键 → 显示材质
 var _dirty := false
 
 
@@ -384,31 +384,43 @@ func _mirror_for(li: int, layer: TileMapLayer, src: int, display: bool,
 	m.texture_filter = layer.texture_filter
 	# z 来自层表（小 = 底层）。实体镜像固定 z=3，永远在最上面。
 	m.z_index = z_index
-	m.material = (_display_material if display else _geo_material).call(src)
+	m.material = (_display_material if display else _geo_material).call(layer.tile_set, src)
 	canvas.add_child(m)
 	m.global_transform = layer.global_transform
 	per_src[src] = m
 	return m
 
 
-func _display_material(src: int) -> ShaderMaterial:
-	if _display_mat_cache.has(src):
-		return _display_mat_cache[src]
+func _display_material(tset: TileSet, src: int) -> ShaderMaterial:
+	var key := _cache_key(tset, src)
+	if _display_mat_cache.has(key):
+		return _display_mat_cache[key]
 	var m := ShaderMaterial.new()
 	m.shader = DISPLAY_SHADER
-	m.set_shader_parameter("params_atlas", _params_atlas(src, true))
-	_display_mat_cache[src] = m
+	m.set_shader_parameter("params_atlas", _params_atlas(tset, src, true))
+	_display_mat_cache[key] = m
 	return m
 
 
-func _geo_material(src: int) -> ShaderMaterial:
-	if _mat_cache.has(src):
-		return _mat_cache[src]
+func _geo_material(tset: TileSet, src: int) -> ShaderMaterial:
+	var key := _cache_key(tset, src)
+	if _mat_cache.has(key):
+		return _mat_cache[key]
 	var m := ShaderMaterial.new()
 	m.shader = GEO_SHADER
-	m.set_shader_parameter("params_atlas", _params_atlas(src, false))
-	_mat_cache[src] = m
+	m.set_shader_parameter("params_atlas", _params_atlas(tset, src, false))
+	_mat_cache[key] = m
 	return m
+
+
+## 参数图/材质的缓存键：**必须带上 TileSet**，不能只用 source_id。
+## 背景层和前景层各用一份 TileSet 之后，两边的 source_id 都会是 0；
+## 只按 source_id 缓存会把两张参数图混成一张——背景砖会误用前景砖的 Z / show，
+## 而且画面上不一定看得出来，只会让背景那层"奇怪地挡声"或"奇怪地亮"。
+func _cache_key(tset: TileSet, src: int) -> String:
+	if tset == null:
+		return "none:%d" % src
+	return "%d:%d" % [tset.get_instance_id(), src]
 
 
 # ---------------------------------------------------------------- 逐图块参数
@@ -420,19 +432,19 @@ func _geo_material(src: int) -> ShaderMaterial:
 ## surface / transmit 是美术填的 Z 推出来的（AcousticMedium.surface_from_z / transmit_from_z），
 ## Z 这个名字只活在这个函数里，着色器一点都不知道有它。
 ## 两张全屏纹理各自从一个视口来，所以不需要把一个通道劈成两半用。
-func _params_atlas(src: int, display: bool) -> Texture2D:
+func _params_atlas(tset: TileSet, src: int, display: bool) -> Texture2D:
 	var cache: Dictionary = _display_atlas_cache if display else _atlas_cache
-	if cache.has(src):
-		return cache[src]
+	var key := _cache_key(tset, src)
+	if cache.has(key):
+		return cache[key]
 
-	var tset := _find_tileset()
 	var atlas: TileSetAtlasSource = null
 	if tset != null:
 		atlas = tset.get_source(src) as TileSetAtlasSource
 	var tex: Texture2D = atlas.texture if atlas != null else null
 	if tex == null:
-		cache[src] = _blank_texture()
-		return cache[src]
+		cache[key] = _blank_texture()
+		return cache[key]
 
 	var img := Image.create(tex.get_width(), tex.get_height(), false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -495,16 +507,8 @@ func _params_atlas(src: int, display: bool) -> Texture2D:
 			img.fill_rect(atlas.get_tile_texture_region(coords, f), col)
 
 	var out := ImageTexture.create_from_image(img)
-	cache[src] = out
+	cache[key] = out
 	return out
-
-
-func _find_tileset() -> TileSet:
-	for b in _layers:
-		var layer := b.node as TileMapLayer
-		if layer != null and layer.tile_set != null:
-			return layer.tile_set
-	return null
 
 
 func _blank_texture() -> Texture2D:

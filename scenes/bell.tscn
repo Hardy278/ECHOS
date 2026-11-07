@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://cbwf5gq8rudy1" path="res://scripts/object/abilities/periodic_ability.gd" id="3_tick"]
 [ext_resource type="Texture2D" uid="uid://bash1ly7f2j44" path="res://sprites/bell.png" id="4_sprite"]
 [ext_resource type="Script" uid="uid://ldn7840l42f8" path="res://scripts/wave/acoustic_body.gd" id="5_body"]
+[ext_resource type="Resource" path="res://audio/profiles/bell.tres" id="6_audio"]
 
 [node name="Bell" type="Node2D" unique_id=986843742]
 script = ExtResource("1_bell")
@@ -26,5 +27,6 @@ gain = 1.4
 
 [node name="Tick" type="Node" parent="EchoSource" unique_id=1083913178]
 script = ExtResource("3_tick")
+audio = ExtResource("6_audio")
 start_immediately = true
 amp = 0.25

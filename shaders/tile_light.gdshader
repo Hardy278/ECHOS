@@ -35,6 +35,13 @@ uniform float art_gain = 1.7;                            // 图案对比提升
 // 否则在纯黑背景上看起来就是个"洞"。这个值就是最暗那一档的亮度。
 uniform float art_floor : hint_range(0.0, 1.0) = 0.35;
 uniform float silhouette : hint_range(0.0, 1.0) = 1.0;   // 0 = 只留描边，不画图块主体
+// 1 = 只画在**没有几何**的地方（背景层用）。
+//
+// 为什么需要：背景是纯画面层，不写几何纹理，所以它会"透过"前景瓦片露出来。
+// 前景瓦片的渗光本来就是很淡的一层 alpha，底下压着一块更亮的背景时，
+// 看上去就像前景的渗光被背景吃掉了。用前景的覆盖（geo_tex 的 A）把它镂空，
+// 背景就只填空气，两者不再抢同一个像素。
+uniform float behind_only = 0.0;
 
 varying vec2 world_pos;
 
@@ -76,5 +83,11 @@ void fragment() {
 		col = mix(flat_color, bleed / bl, clamp(bl * bleed_tint, 0.0, 1.0));
 	}
 
-	COLOR = vec4(col * art, COLOR.a * v * silhouette * show * light_gain);
+	// 背景层：被前景的覆盖镂空（实体写的 0.7 也算覆盖，所以草和门底下同样让开）
+	float mask = 1.0;
+	if (behind_only > 0.5) {
+		mask = 1.0 - step(0.5, texture(geo_tex, uv).a);
+	}
+
+	COLOR = vec4(col * art, COLOR.a * v * silhouette * show * light_gain * mask);
 }
