@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="NormalAtlasMap" format=3 uid="uid://cv3nwkm70001k"]
+
+[ext_resource type="Script" uid="uid://bhqi87xadke8l" path="res://scripts/world/normal_atlas_map.gd" id="1_map"]
+[ext_resource type="Script" uid="uid://d1j36t6lic4rt" path="res://scripts/world/normal_atlas_entry.gd" id="2_entry"]
+[ext_resource type="Texture2D" uid="uid://2mds7lpwxw5x" path="res://tiles/background.png" id="3_albedo"]
+[ext_resource type="Texture2D" uid="uid://btw63ffgoihgv" path="res://tiles/background_n.png" id="4_normal"]
+
+[sub_resource type="Resource" id="Entry_bg"]
+script = ExtResource("2_entry")
+albedo = ExtResource("3_albedo")
+normal = ExtResource("4_normal")
+
+[resource]
+script = ExtResource("1_map")
+entries = Array[Resource]([SubResource("Entry_bg")])

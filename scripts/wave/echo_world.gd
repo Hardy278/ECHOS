@@ -274,8 +274,16 @@ func _build_tile_materials() -> void:
 		var def := b.def as EchoLayer
 		if layer == null or def == null:
 			continue
+		# 这一层要不要自己挑着色器：节点（或子节点）实现了 layer_shader() 就听它的。
+		# 只有需要特殊表现的层才挂呈现器，默认层连这个方法都不存在。
+		var presenter := _presenter_of(layer)
+		var sh: Shader = TILE_LIGHT_SHADER
+		if presenter != null:
+			var custom: Shader = presenter.call("layer_shader")
+			if custom != null:
+				sh = custom
 		var m := ShaderMaterial.new()
-		m.shader = TILE_LIGHT_SHADER
+		m.shader = sh
 		m.set_shader_parameter("light_tex", _light_vp.get_texture())
 		m.set_shader_parameter("geo_tex", geometry_texture())
 		m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
@@ -290,7 +298,20 @@ func _build_tile_materials() -> void:
 		# 而前景的渗光本身很淡，底下压一块更亮的背景就被吃掉了。
 		# 用前景的覆盖把它镂空，两边不再抢同一个像素。
 		m.set_shader_parameter("behind_only", 0.0 if def.acoustic else 1.0)
+		# 呈现器只补它自己那几个 uniform；通用量一律不归它管
+		if presenter != null and presenter.has_method("decorate"):
+			presenter.call("decorate", m)
 		layer.material = m
+
+
+## 找这一层的呈现器：节点自己实现，或者它下面挂一个
+func _presenter_of(layer: Node) -> Node:
+	if layer.has_method("layer_shader"):
+		return layer
+	for c in layer.get_children():
+		if c.has_method("layer_shader"):
+			return c
+	return null
 
 
 func _build_display() -> void:

@@ -1,31 +1,23 @@
-[gd_resource type="Resource" script_class="EchoLayerSet" load_steps=6 format=3]
+[gd_resource type="Resource" script_class="EchoLayerSet" format=3 uid="uid://cp6hygvcrk523"]
 
-[ext_resource type="Script" path="res://scripts/world/echo_layer_set.gd" id="1_set"]
-[ext_resource type="Script" path="res://scripts/world/echo_layer.gd" id="2_layer"]
+[ext_resource type="Script" uid="uid://felqk7w2gq23" path="res://scripts/world/echo_layer_set.gd" id="1_set"]
+[ext_resource type="Script" uid="uid://dweqn40jy68ui" path="res://scripts/world/echo_layer.gd" id="2_layer"]
 
 [sub_resource type="Resource" id="Layer_bg"]
 script = ExtResource("2_layer")
-kind = 0
 path = NodePath("Background")
-z = 0
-light_gain = 1.0
 acoustic = false
 
 [sub_resource type="Resource" id="Layer_fore"]
 script = ExtResource("2_layer")
-kind = 0
 path = NodePath("ForeGround")
 z = 1
-light_gain = 1.0
-acoustic = true
 
 [sub_resource type="Resource" id="Layer_entity"]
 script = ExtResource("2_layer")
 kind = 1
 z = 2
-light_gain = 1.0
-acoustic = true
 
 [resource]
 script = ExtResource("1_set")
-layers = Array[Resource]([SubResource("Layer_bg"), SubResource("Layer_fore"), SubResource("Layer_entity")])
+layers = [SubResource("Layer_bg"), SubResource("Layer_fore"), SubResource("Layer_entity")]
