@@ -259,23 +259,19 @@ func _process(delta: float) -> void:
 
 	# 清场优先：这两帧只把场写成 0，不注入
 	if _clear_frames > 0:
-		_set_param("reset", 1.0)
+		_masks(true, false)
 		_step_render()
 		_clear_frames -= 1
-		if _clear_frames == 0:
-			_set_param("reset", 0.0)
 		return
 
 	# 定场：清完之后写一帧薄片，之后交给场自己演化
 	if _seed_frames > 0:
-		_set_param("reset", 1.0)
-		_set_param("seed", 1.0)
+		_masks(true, true)
 		_step_render()
 		_seed_frames -= 1
-		if _seed_frames == 0:
-			_set_param("reset", 0.0)
-			_set_param("seed", 0.0)
 		return
+
+	_masks(false, false)
 
 	if _live > 0.0:
 		_live -= delta
@@ -311,6 +307,17 @@ func _step_render() -> void:
 	(_vps[1 - back] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
 	if _view_mat != null:
 		_view_mat.set_shader_parameter("env_field", field_texture())
+
+
+## reset / seed 两个 uniform 的**唯二**写入口。
+##
+## 它们是在**这一帧渲染时**才被读的，而 SubViewport 的渲染排在本帧所有 _process
+## 之后。所以顺序必须是：先把这一帧要用的值写全 → 再请求渲染 → 渲染之后不要再碰。
+## 同帧里写成"置 1 → 请求渲染 → 清 0"，那次渲染读到的是 0：
+## 清场的那一帧其实是一次普通推进，定场的薄片则根本写不进去（切房传光失效）。
+func _masks(reset: bool, seed: bool) -> void:
+	_set_param("reset", 1.0 if reset else 0.0)
+	_set_param("seed", 1.0 if seed else 0.0)
 
 
 ## 停掉推进，保留当前画面

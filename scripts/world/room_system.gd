@@ -15,6 +15,7 @@ extends Node2D
 ## 本节点必须排在 Player **之后**（同一优先级按树序执行），这样 `_physics_process`
 ## 里读到的玩家坐标已经是这一帧移动完之后的值。
 
+## 纯通知：房间换完了。想"跟着响应"的东西都订这个，不要去改 `_apply()` 的步骤。
 signal room_changed(room: Room)
 
 ## 一屏的尺寸，也是场的尺寸
@@ -39,7 +40,9 @@ var checkpoint: Dictionary = {}
 
 var _registry := RoomRegistry.new()
 var _state := RoomStateStore.new()
-var _world: Node                 # EchoWorld
+## 类型化而不是 `Node` + `has_method("bind_room")`：改名会变成编译错误，
+## 而不是一条跑起来才出现的 warning。
+var _world: EchoWorld
 var _busy := false               # 切房窗口内不再检测边界
 
 
@@ -48,7 +51,9 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
-	_world = get_tree().get_first_node_in_group("echo_world")
+	_world = get_tree().get_first_node_in_group("echo_world") as EchoWorld
+	if _world == null:
+		push_warning("RoomSystem: 场景里没有 EchoWorld，房间不会绑定到世界（画面会一直黑）")
 	if player == null:
 		player = get_tree().get_first_node_in_group("player") as CharacterBody2D
 	_registry.scan(rooms_dir)
@@ -111,8 +116,8 @@ func respawn() -> bool:
 	_clamp_inside()
 	# 旧位置的余晖不该跟过来
 	var src := _player_source()
-	if src != null and src.has_method("clear_field"):
-		src.call("clear_field")
+	if src != null:
+		src.clear_field()
 	return true
 
 
@@ -146,9 +151,7 @@ func _cross(dir: Vector2i) -> void:
 
 	# 抄下正在穿出去的那一薄片：场还没清，这时读到的正好是"刚穿过门口"的时刻
 	var src := _player_source()
-	var slab: Texture2D = null
-	if src != null and src.has_method("capture_slab"):
-		slab = src.call("capture_slab", dir) as Texture2D
+	var slab: Texture2D = src.capture_slab(dir) if src != null else null
 
 	# 位置连续：右出 → 新房间左侧同高度（越界了多少就带过去多少）
 	_enter(target, player.global_position - Vector2(dir) * SIZE, dir, slab)
@@ -168,6 +171,10 @@ func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
 ##
 ## 顺序有依赖：先拔旧房间（碰撞和图块立刻离场，避免和新房间重叠一帧）
 ## → 搬人 → 清场（旧房的墙形反射不能跟过来）→ 绑世界 → 恢复状态 → 定场薄片。
+##
+## **这里只放有顺序依赖的步骤。** 只想"知道房间换了"的东西（水、相机、音乐、
+## 以后的 HUD）订阅 `room_changed`，不要往这条序列里加行——信号的分发顺序等于
+## 连接顺序，在调用点看不见，往这里加久了就又变回上帝函数。
 func _apply(coord: Vector2i, at: Vector2, move_player: bool,
 		dir := Vector2i.ZERO, slab: Texture2D = null) -> Room:
 	var scene := _registry.at(coord)
@@ -198,8 +205,8 @@ func _apply(coord: Vector2i, at: Vector2, move_player: bool,
 	# 定场：把门口那一薄片写进新房间的入口侧，让刚才那一声跟着进来
 	if slab != null and dir != Vector2i.ZERO:
 		var src := _player_source()
-		if src != null and src.has_method("seed_slab"):
-			src.call("seed_slab", slab, dir)
+		if src != null:
+			src.seed_slab(slab, dir)
 
 	current = room
 	current_coord = coord
@@ -250,29 +257,29 @@ func _spawn(coord: Vector2i, scene: PackedScene) -> Room:
 
 
 func _bind(room: Room) -> void:
-	if _world == null:
-		return
-	if not _world.has_method("bind_room"):
-		# 接口改名会走到这里：房间换了但世界没换，画面会停在上一间房
-		push_warning("RoomSystem: echo_world 上没有 bind_room，房间不会被绑成当前世界")
-		return
-	_world.call("bind_room", room)
+	if _world != null:
+		_world.bind_room(room)
 
 
+## 点名"当前所有活着的声源"做一件事。用组而不是信号：
+## 听者是个**动态集合**（换房就换一批），信号得逐个连/断，组查询天然就是"现在活着的"。
 func _clear_fields() -> void:
-	for s in get_tree().get_nodes_in_group("echo_sources"):
-		if s.has_method("clear_field"):
-			s.call("clear_field")
+	for n in get_tree().get_nodes_in_group("echo_sources"):
+		var src := n as EchoSource
+		if src != null:
+			src.clear_field()
 
 
 ## 房间换了之后，让所有还活着的声源重读声学参数和开口。新房间里的声源会在
 ## 自己的 _setup 里读一次，这里主要是给跨房间存活的那些（玩家）用。
 func _push_room_state() -> void:
-	for s in get_tree().get_nodes_in_group("echo_sources"):
-		if s.has_method("refresh_room"):
-			s.call("refresh_room")
+	for n in get_tree().get_nodes_in_group("echo_sources"):
+		var src := n as EchoSource
+		if src != null:
+			src.refresh_room()
 
 
-## 玩家自己的声道：唯一跨房间存活的声源，边界搬运只对它做
-func _player_source() -> Node:
-	return player.get_node_or_null("Echo") if player != null else null
+## 玩家自己的声道：唯一跨房间存活的声源，边界搬运只对它做。
+## 返回类型化引用，所以 `capture_slab` / `seed_slab` / `clear_field` 改名会是编译错误。
+func _player_source() -> EchoSource:
+	return player.get_node_or_null("Echo") as EchoSource if player != null else null
