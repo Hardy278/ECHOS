@@ -2,6 +2,9 @@
 
 [ext_resource type="Script" uid="uid://dt8o0apq3l7n" path="res://scripts/world/room.gd" id="1_dauqb"]
 [ext_resource type="TileSet" uid="uid://dqm0chntm42cb" path="res://tiles/foreground_tile.tres" id="2_tktnf"]
+[ext_resource type="TileSet" path="res://tiles/background_tile.tres" id="3_bg"]
+[ext_resource type="Script" path="res://scripts/world/layer_presenter.gd" id="20_presenter"]
+[ext_resource type="Resource" path="res://tiles/normal_atlas.tres" id="21_normal"]
 
 [node name="Room2" type="Node2D" unique_id=1097833614]
 script = ExtResource("1_dauqb")
@@ -15,4 +18,10 @@ tile_set = ExtResource("2_tktnf")
 [node name="Background" type="TileMapLayer" parent="." unique_id=974004967]
 z_index = -2
 scale = Vector2(2, 2)
-tile_set = ExtResource("2_tktnf")
+tile_set = ExtResource("3_bg")
+
+[node name="Presenter" type="Node" parent="Background" unique_id=1900777342]
+script = ExtResource("20_presenter")
+normal_map = ExtResource("21_normal")
+normal_strength = 0.8
+normal_step = 6.0

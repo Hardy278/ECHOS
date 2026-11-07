@@ -230,8 +230,8 @@ func _step_bleed() -> void:
 		return
 
 	var back := 1 - _bleed_front
-	# 采样器必须**每步**重绑：在 _build_bleed 里一次性设好不管用（实测绑不上，
-	# 采样器保持默认白，于是 max(0.62, 1) = 1，整个缓冲被填成 1）。
+	# 采样器每步都要重绑：只设一次绑不上，采样器保持默认白，
+	# 于是 max(decay, 1) = 1，整个缓冲会被填成 1。
 	var mat := _bleed_material(back)
 	if mat != null:
 		mat.set_shader_parameter("src_tex",
@@ -267,6 +267,18 @@ func _clear_bleed() -> void:
 	_bleed_front = 0
 
 
+## 所有读"合成光"的材质共用的那几项。
+## 图块和实体只差在 display_tex 和层增益，其余完全相同——只写一份，改的时候不会漏掉一边。
+func _apply_shared(m: ShaderMaterial, light_gain: float) -> void:
+	m.set_shader_parameter("light_tex", _light_vp.get_texture())
+	m.set_shader_parameter("geo_tex", geometry_texture())
+	m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
+	# 渗进实体内部的那一份光：没有它，砖块内部永远是黑的
+	m.set_shader_parameter("bleed_tex",
+			bleed_texture() if bleed_texture() != null else _black())
+	m.set_shader_parameter("light_gain", light_gain)
+
+
 ## 每层的图块材质：被"总的照亮"照亮才显形，暗处透明
 func _build_tile_materials() -> void:
 	for b in _bindings:
@@ -284,19 +296,12 @@ func _build_tile_materials() -> void:
 				sh = custom
 		var m := ShaderMaterial.new()
 		m.shader = sh
-		m.set_shader_parameter("light_tex", _light_vp.get_texture())
-		m.set_shader_parameter("geo_tex", geometry_texture())
-		m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
-		# 这一层的默认显示倍率（只作用在图块上，实体有自己的材质）
-		m.set_shader_parameter("light_gain", def.light_gain)
+		_apply_shared(m, def.light_gain)
 		# 每块砖"显现纹理"的值；拿不到就绑 1×1 白（= 全显示）
 		m.set_shader_parameter("display_tex",
 				geometry.call("display_texture") if geometry != null else _white())
-		# 渗进实体内部的那一份光：没有它，砖块内部永远是黑的
-		m.set_shader_parameter("bleed_tex", bleed_texture() if bleed_texture() != null else _black())
-		# 不进几何的层（背景）是"纯画面"：它会透过前景瓦片露出来，
-		# 而前景的渗光本身很淡，底下压一块更亮的背景就被吃掉了。
-		# 用前景的覆盖把它镂空，两边不再抢同一个像素。
+		# 不进几何的层（背景）是纯画面：它会透过前景瓦片露出来，
+		# 而前景渗光本身很淡，底下压一块更亮的背景就被吃掉了。用覆盖把它镂空。
 		m.set_shader_parameter("behind_only", 0.0 if def.acoustic else 1.0)
 		# 呈现器只补它自己那几个 uniform；通用量一律不归它管
 		if presenter != null and presenter.has_method("decorate"):
@@ -337,18 +342,13 @@ func _build_display() -> void:
 
 ## 实体共用材质：读同一张合成光、同一张几何纹理，只是层增益按前景算
 func _build_entity_material() -> void:
+	var edef := EchoLayers.entity_layer()
 	_entity_mat = ShaderMaterial.new()
 	_entity_mat.shader = TILE_LIGHT_SHADER
-	_entity_mat.set_shader_parameter("light_tex", _light_vp.get_texture())
-	_entity_mat.set_shader_parameter("geo_tex", geometry_texture())
-	_entity_mat.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
+	# 实体层的显示倍率来自层表，不受图块层的 light_gain 影响
+	_apply_shared(_entity_mat, edef.light_gain if edef != null else 1.0)
 	# 实体没有"每砖种"的概念，统一完全显示；要单独调就给那个实体一份自己的材质
 	_entity_mat.set_shader_parameter("display_tex", _white())
-	_entity_mat.set_shader_parameter("bleed_tex",
-			bleed_texture() if bleed_texture() != null else _black())
-	# 实体层的显示倍率（来自层表）。实体不会被图块层的 light_gain 影响。
-	var edef := EchoLayers.entity_layer()
-	_entity_mat.set_shader_parameter("light_gain", edef.light_gain if edef != null else 1.0)
 
 
 ## 1×1 黑：光渗没准备好时的兜底。**不能给白**——那会让全世界都亮起来。

@@ -7,9 +7,10 @@ extends Node2D
 ## 切房时整块换掉：旧房间实例被释放、新房间实例进来、所有声源清场、
 ## EchoWorld 重新绑到新房间的三层图块上。
 ##
-## 房间从 `rooms_dir` 里扫出来（每个 .tscn 一个房间，坐标写在房间身上），
-## 四邻由坐标 ±1 推导。
-## 没有相邻房间的那条边就是世界的尽头：把玩家挡回边界内侧。
+## 它自己只剩"边界判定 + 进房间的那一条序列"，其余都在外面：
+##   · RoomRegistry    —— 有哪些房间、某个坐标上是哪个
+##   · RoomStateStore  —— 挂 Persistent 的东西的跨房间快照
+##   · EchoWorld       —— 房间图块怎么变成当前世界（bind_room）
 ##
 ## 本节点必须排在 Player **之后**（同一优先级按树序执行），这样 `_physics_process`
 ## 里读到的玩家坐标已经是这一帧移动完之后的值。
@@ -36,8 +37,8 @@ var current_coord := Vector2i.ZERO
 ## 出生点就是第 0 个，所以永远不会空。
 var checkpoint: Dictionary = {}
 
-var _rooms: Dictionary = {}      # Vector2i → PackedScene
-var _states: Dictionary = {}     # Vector2i → { state_id: 快照 }
+var _registry := RoomRegistry.new()
+var _state := RoomStateStore.new()
 var _world: Node                 # EchoWorld
 var _busy := false               # 切房窗口内不再检测边界
 
@@ -50,9 +51,8 @@ func _ready() -> void:
 	_world = get_tree().get_first_node_in_group("echo_world")
 	if player == null:
 		player = get_tree().get_first_node_in_group("player") as CharacterBody2D
-	_scan_rooms()
-	# 开局把房间表打到 Output：配置错了一眼就能看到
-	print("[房间表] %s" % _describe_rooms())
+	_registry.scan(rooms_dir)
+	print("[房间表] %s" % _registry.describe())
 	# 等所有 _ready（尤其 EchoWorld 的合成层）跑完再进第一个房间
 	begin.call_deferred(start_coord)
 
@@ -64,12 +64,12 @@ func acoustics() -> Vector2:
 
 
 ## 哪几条边是开口（左, 右, 上, 下）：有相邻房间 = 开口 = 声学上的吸声边界。
-## 世界的尽头（没有相邻房间）保持全反射，和以前一样。
+## 世界的尽头（没有相邻房间）保持全反射。
 func edges() -> Vector4:
-	var l := 1.0 if _rooms.has(current_coord + Vector2i.LEFT) else 0.0
-	var r := 1.0 if _rooms.has(current_coord + Vector2i.RIGHT) else 0.0
-	var u := 1.0 if _rooms.has(current_coord + Vector2i.UP) else 0.0
-	var d := 1.0 if _rooms.has(current_coord + Vector2i.DOWN) else 0.0
+	var l := 1.0 if _registry.has(current_coord + Vector2i.LEFT) else 0.0
+	var r := 1.0 if _registry.has(current_coord + Vector2i.RIGHT) else 0.0
+	var u := 1.0 if _registry.has(current_coord + Vector2i.UP) else 0.0
+	var d := 1.0 if _registry.has(current_coord + Vector2i.DOWN) else 0.0
 	return Vector4(l, r, u, d)
 
 
@@ -84,20 +84,12 @@ func describe() -> String:
 
 
 func begin(coord: Vector2i) -> void:
-	var scene := _scene_at(coord)
-	if scene == null:
-		push_error("RoomSystem: 没有坐标 %s 的房间。" % coord
-				+ "把房间场景放进 %s，并在它根节点的 coord 里填这个坐标。" % rooms_dir)
+	var room := _apply(coord, Vector2.ZERO, false)
+	if room == null:
 		return
-	current = _spawn(coord, scene)
-	current_coord = coord
-	_bind(current)
-	_restore_state(current)
-	_push_room_state()
 	# 出生点就是第 0 个检查点：一个都没踩过也有地方回
 	if checkpoint.is_empty() and player != null:
 		checkpoint = {"coord": coord, "pos": player.global_position}
-	room_changed.emit(current)
 
 
 ## 检查点踩到：记下"最后一个"。跨房间也能回来，因为记的是房间坐标 + 房内位置。
@@ -148,7 +140,7 @@ func _physics_process(_delta: float) -> void:
 
 func _cross(dir: Vector2i) -> void:
 	var target := current_coord + dir
-	if _scene_at(target) == null:
+	if _registry.at(target) == null:
 		_push_back(dir)      # 这条边是世界的尽头
 		return
 
@@ -162,35 +154,46 @@ func _cross(dir: Vector2i) -> void:
 	_enter(target, player.global_position - Vector2(dir) * SIZE, dir, slab)
 
 
-## 搬进另一个房间：换房、搬玩家、清场、重绑。切房和复活共用这一段。
-## dir / slab 只有穿门时才有：那一薄片声场要跟着人过来。
+## 搬进另一个房间。切房和复活共用这一条路；失败时把 _busy 放回去。
 func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
 		slab: Texture2D = null) -> bool:
-	var scene := _scene_at(coord)
-	if scene == null:
-		push_error("RoomSystem: 没有坐标 %s 的房间" % coord)
-		return false
-
 	_busy = true
-	_save_state(current)
+	var room := _apply(coord, player_pos, true, dir, slab)
+	_busy = false
+	return room != null
 
-	# 先拔旧房间：它的碰撞和图块立刻离场，避免和新房间重叠一帧
+
+## 进房间的**唯一**一条序列。begin 和 _enter 都走这里，所以不会出现
+## "开局进的房间少了某一步、切房进的房间多了某一步"这种漂移。
+##
+## 顺序有依赖：先拔旧房间（碰撞和图块立刻离场，避免和新房间重叠一帧）
+## → 搬人 → 清场（旧房的墙形反射不能跟过来）→ 绑世界 → 恢复状态 → 定场薄片。
+func _apply(coord: Vector2i, at: Vector2, move_player: bool,
+		dir := Vector2i.ZERO, slab: Texture2D = null) -> Room:
+	var scene := _registry.at(coord)
+	if scene == null:
+		push_error("RoomSystem: 没有坐标 %s 的房间。把场景放进 %s，并在它根节点的 coord 里填这个坐标"
+				% [coord, rooms_dir])
+		return null
+
 	var old := current
-	current = null
 	if old != null:
+		_state.save(old)
+		current = null
 		remove_child(old)
 		old.queue_free()
 
 	var room := _spawn(coord, scene)
+	if room == null:
+		return null
 
-	player.global_position = player_pos
-	_clamp_inside()
+	if move_player:
+		player.global_position = at
+		_clamp_inside()
 
-	# 清场：旧房间的墙形反射和残余不能跟过来
 	_clear_fields()
-
 	_bind(room)
-	_restore_state(room)
+	_state.restore(room)
 
 	# 定场：把门口那一薄片写进新房间的入口侧，让刚才那一声跟着进来
 	if slab != null and dir != Vector2i.ZERO:
@@ -200,10 +203,9 @@ func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
 
 	current = room
 	current_coord = coord
-	_busy = false
 	_push_room_state()
 	room_changed.emit(room)
-	return true
+	return room
 
 
 func _push_back(dir: Vector2i) -> void:
@@ -235,59 +237,6 @@ func _clamp_inside() -> void:
 
 # ---------------------------------------------------------------- 装配
 
-## 扫房间目录：每个 .tscn 一个房间，坐标从房间根节点的 `coord` 读（不实例化）
-func _scan_rooms() -> void:
-	_rooms.clear()
-	var dir := DirAccess.open(rooms_dir)
-	if dir == null:
-		push_error("RoomSystem: 打不开房间目录 %s" % rooms_dir)
-		return
-	for f in dir.get_files():
-		# 打包时 .tscn 会被转成 .scn，目录里只剩 "xxx.tscn.remap"；
-		# 编辑器里则是 xxx.tscn 本身。两种都要认——load() 会自己走 remap。
-		var name := f.trim_suffix(".remap")
-		if not name.ends_with(".tscn"):
-			continue
-		var scene := load(rooms_dir.path_join(name)) as PackedScene
-		if scene == null:
-			push_warning("RoomSystem: %s 不是能用的场景" % name)
-			continue
-		var c := coord_of(scene)
-		if _rooms.has(c):
-			push_warning("RoomSystem: 坐标 %s 上有两个房间，%s 会盖掉 %s"
-					% [c, name, (_rooms[c] as PackedScene).resource_path.get_file()])
-		_rooms[c] = scene
-	if _rooms.is_empty():
-		push_error("RoomSystem: %s 里没有房间场景" % rooms_dir)
-
-
-## 从场景文件里读根节点的 coord，不实例化（房间的 _ready 不该在启动时乱跑一遍）
-static func coord_of(scene: PackedScene) -> Vector2i:
-	if scene == null:
-		return Vector2i.ZERO
-	var state := scene.get_state()
-	if state == null:
-		return Vector2i.ZERO
-	for i in state.get_node_property_count(0):
-		if state.get_node_property_name(0, i) == &"coord":
-			return state.get_node_property_value(0, i)
-	return Vector2i.ZERO       # 没填 = (0,0)，也就是原点那个房间
-
-
-func _describe_rooms() -> String:
-	if _rooms.is_empty():
-		return "（空——检查 %s）" % rooms_dir
-	var parts: Array = []
-	for c in _rooms:
-		parts.append("(%d,%d)=%s" % [c.x, c.y, (_rooms[c] as PackedScene).resource_path.get_file()])
-	parts.sort()
-	return String(", ").join(parts)
-
-
-func _scene_at(coord: Vector2i) -> PackedScene:
-	return _rooms.get(coord) as PackedScene
-
-
 func _spawn(coord: Vector2i, scene: PackedScene) -> Room:
 	var room := scene.instantiate() as Room
 	if room == null:
@@ -301,8 +250,13 @@ func _spawn(coord: Vector2i, scene: PackedScene) -> Room:
 
 
 func _bind(room: Room) -> void:
-	if _world != null and _world.has_method("bind_room"):
-		_world.call("bind_room", room)
+	if _world == null:
+		return
+	if not _world.has_method("bind_room"):
+		# 接口改名会走到这里：房间换了但世界没换，画面会停在上一间房
+		push_warning("RoomSystem: echo_world 上没有 bind_room，房间不会被绑成当前世界")
+		return
+	_world.call("bind_room", room)
 
 
 func _clear_fields() -> void:
@@ -322,31 +276,3 @@ func _push_room_state() -> void:
 ## 玩家自己的声道：唯一跨房间存活的声源，边界搬运只对它做
 func _player_source() -> Node:
 	return player.get_node_or_null("Echo") if player != null else null
-
-
-# ---------------------------------------------------------------- 状态快照
-
-## 箱子 / 开关 / 门锁这类挂了 Persistent 的东西跨房间保留；草和生物不挂，自然重置
-func _save_state(room: Room) -> void:
-	if room == null:
-		return
-	var snap := {}
-	for n in get_tree().get_nodes_in_group("persistent"):
-		if not room.is_ancestor_of(n) or not n.has_method("save_state"):
-			continue
-		snap[n.get("state_id")] = n.call("save_state")
-	_states[room.coord] = snap
-
-
-func _restore_state(room: Room) -> void:
-	if room == null:
-		return
-	var snap: Dictionary = _states.get(room.coord, {})
-	if snap.is_empty():
-		return
-	for n in get_tree().get_nodes_in_group("persistent"):
-		if not room.is_ancestor_of(n) or not n.has_method("load_state"):
-			continue
-		var id = n.get("state_id")
-		if snap.has(id):
-			n.call("load_state", snap[id])

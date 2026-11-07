@@ -22,6 +22,7 @@ extends Node
 
 var _cd := 0.0
 var _target: Node
+var _warned_no_target := false
 
 
 func _process(delta: float) -> void:
@@ -53,6 +54,10 @@ func fire(strength: float) -> bool:
 		return false
 	var t := _get_target()
 	if t == null or not t.has_method("emit_sound"):
+		# 声源接口改名会走到这里。以前是静默 return false，只有"某扇门打不开"能暴露。
+		if not _warned_no_target:
+			_warned_no_target = true
+			push_warning("%s: 父链上找不到带 emit_sound 的声源，这条能力不会发声" % name)
 		return false
 	_cd = cooldown
 	t.emit_sound(_origin(), _amp_for(strength), steps)

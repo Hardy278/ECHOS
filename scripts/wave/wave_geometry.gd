@@ -22,12 +22,6 @@ const DISPLAY_SHADER := preload("res://shaders/geo_display.gdshader")
 const BAND_SHADER := preload("res://shaders/band.gdshader")
 const BODY_SHADER := preload("res://shaders/geo_body.gdshader")
 const BODY_ALPHA_SHADER := preload("res://shaders/geo_body_alpha.gdshader")
-## 单面平台默认的"显现纹理"值：0.8。
-## 它以前是靠 absorb=0.2（把 v 乘 0.8）压暗的，现在换成显式的不透明度上限。
-const DEFAULT_ONE_WAY_SHOW := 0.8
-## 折射介质默认的"显现纹理"值：0.6。它以前是 tile_light 里一句
-## `g.g > 1.01 ? 0.6 : 1.0` 的硬编码（水看起来要"暗一点、像看进去"）。
-const DEFAULT_REFRACTIVE_SHOW := 0.6
 ## 层表里没有实体层时的兜底 z：压在所有图块层之上
 const ENTITY_Z_FALLBACK := 3
 const MAX_BAND_PX := 4
@@ -425,93 +419,10 @@ func _cache_key(tset: TileSet, src: int) -> String:
 
 # ---------------------------------------------------------------- 逐图块参数
 
-## 和某个图集纹理等大的参数图。图集里每个 tile 的矩形都填上它自己的一整组参数。
-## 两种图，通道含义不同，各自喂给一张视口：
-##   · display = false（几何视口）: R = surface, G = ior, B = transmit, A = 1（覆盖）
-##   · display = true （显示视口）: R = show,    G = alpha, B = 0,      A = 1（覆盖）
-## surface / transmit 是美术填的 Z 推出来的（AcousticMedium.surface_from_z / transmit_from_z），
-## Z 这个名字只活在这个函数里，着色器一点都不知道有它。
-## 两张全屏纹理各自从一个视口来，所以不需要把一个通道劈成两半用。
+## 和某个图集纹理等大的参数图，按 (TileSet, 源) 缓存。烘焙本身在 ParamAtlas 里。
 func _params_atlas(tset: TileSet, src: int, display: bool) -> Texture2D:
 	var cache: Dictionary = _display_atlas_cache if display else _atlas_cache
 	var key := _cache_key(tset, src)
-	if cache.has(key):
-		return cache[key]
-
-	var atlas: TileSetAtlasSource = null
-	if tset != null:
-		atlas = tset.get_source(src) as TileSetAtlasSource
-	var tex: Texture2D = atlas.texture if atlas != null else null
-	if tex == null:
-		cache[key] = _blank_texture()
-		return cache[key]
-
-	var img := Image.create(tex.get_width(), tex.get_height(), false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-
-	var z_id := tset.get_custom_data_layer_by_name("Z")
-	var ior_id := tset.get_custom_data_layer_by_name("ior")
-	var show_id := tset.get_custom_data_layer_by_name("show")
-	var alpha_id := tset.get_custom_data_layer_by_name("alpha")
-	var has_phys := tset.get_physics_layers_count() > 0
-
-	for i in atlas.get_tiles_count():
-		var coords := atlas.get_tile_id(i)
-		var td := atlas.get_tile_data(coords, 0)
-
-		var one_way := false
-		if td != null and has_phys:
-			for pi in td.get_collision_polygons_count(0):
-				if td.is_collision_polygon_one_way(0, pi):
-					one_way = true
-					break
-
-		# 折射率：没填 = 空气（1.0）。水 1.33、玻璃 1.5 …… 越大声音越慢。
-		# 上限 4 只是防呆：基础 cfl 贴着稳定上限，n < 1 会让场爆掉，所以下限锁在 1。
-		var ior := 1.0
-		if ior_id >= 0 and td != null:
-			ior = clampf(float(td.get_custom_data_by_layer_id(ior_id)), 1.0, AcousticMedium.IOR_MAX)
-
-		# 声阻抗 Z 是美术填的那个量；透声系数由它推出来。
-		var z := 0.0
-		if z_id >= 0 and td != null:
-			z = float(td.get_custom_data_by_layer_id(z_id))
-		var transmit := AcousticMedium.transmit_from_z(z)
-
-		# surface：显不显现边缘。由 Z 推出来（反射系数），不再单独填。
-		var surface := AcousticMedium.surface_from_z(z)
-
-		# show：显不显现纹理。没填时按"材质种类"给默认值：
-		#   · 单面平台 0.8（原来是 absorb=0.2 压暗的）
-		#   · 折射介质 0.6（原来是 shader 里的 body hack）
-		var show := 1.0
-		if show_id >= 0 and td != null:
-			show = clampf(float(td.get_custom_data_by_layer_id(show_id)), 0.0, 1.0)
-		elif one_way:
-			show = DEFAULT_ONE_WAY_SHOW
-		elif ior > 1.01:
-			show = DEFAULT_REFRACTIVE_SHOW
-
-		# 吸声 α：介质**内部**的体衰减，和界面上的 transmit 是两回事。
-		# 只写进显示图的 G 通道，由 wave_step_fb 每步读。
-		var alpha := 0.0
-		if alpha_id >= 0 and td != null:
-			alpha = clampf(float(td.get_custom_data_by_layer_id(alpha_id)), 0.0, 1.0)
-
-		# 动画图块的每一帧都是图集里的一块矩形，全都要填。
-		# G 是 RGBA8 通道（0~1），所以 c 要归一化：1 → 0，IOR_MAX → 1。
-		var col := Color(show, alpha, 0.0, 1.0) if display \
-				else Color(surface, AcousticMedium.ior_to_channel(ior), transmit, 1.0)
-		var frames := maxi(1, atlas.get_tile_animation_frames_count(coords))
-		for f in frames:
-			img.fill_rect(atlas.get_tile_texture_region(coords, f), col)
-
-	var out := ImageTexture.create_from_image(img)
-	cache[key] = out
-	return out
-
-
-func _blank_texture() -> Texture2D:
-	var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	return ImageTexture.create_from_image(img)
+	if not cache.has(key):
+		cache[key] = ParamAtlas.bake(tset, src, display)
+	return cache[key]

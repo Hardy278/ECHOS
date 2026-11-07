@@ -73,8 +73,7 @@ extends Node2D
 @export var stiffness := 0.012
 ## 速度保留率。越大荡得越久（0.985 ≈ 2.3 秒衰减一半），太小就一碰就停
 @export var damping := 0.985
-## 重力加速度（单位/秒²）。全局唯一一份，见 GameConst——
-## 之前这里写的是 0.12 单位/帧²，折算下来只有玩家的一半。
+## 重力加速度（单位/秒²）。全局唯一一份，见 GameConst
 @export var gravity := GameConst.GRAVITY
 ## 段长约束的迭代次数。**这个才是"不可伸长"的旋钮**：
 ## 每多迭代一次，剩下的残余拉伸就再被削掉一半以上。
@@ -100,7 +99,7 @@ const GameConst := preload("res://scripts/world/constants.gd")
 ## 本体亮度：画进 tile_light 的 COLOR 亮度。它 = "这块东西自身的图案亮度"。
 ## 图块的图案是暗的石头（lum≈0.3），所以 tile_light 里 art 只有 0.5 左右，
 ## 暖暖的合成光才有机会从底下透上来。画纯白会让 art 顶到 1，
-## 草就变成这个着色器能画出的最亮冷银——那正是它之前看着"没被声音照亮"的原因。
+## 草就变成这个着色器能画出的最亮冷银，看着像"没被声音照亮"。
 @export var body_art := 0.30
 
 var _pts: Array = []      ## 每根一根 PackedVector2Array
@@ -337,7 +336,7 @@ func acoustic_points(s: int) -> PackedVector2Array:
 ##
 ## 这一步发生在物理之后，所以**弯曲与重力无关**：
 ## 重力只决定这根草整体垂成什么弧线，弯曲是长在它身上的一层图案。
-## 之前把弯曲写进静止形状，于是重力会和弹簧一起把它压扁——那看起来就像弹簧。
+## 弯曲一旦写进静止形状，重力和弹簧就会一起把它压平，看起来像弹簧。
 func _shaped(s: int) -> PackedVector2Array:
 	var pts: PackedVector2Array = _pts[s]
 	var n := pts.size()

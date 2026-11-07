@@ -25,10 +25,6 @@ const TICK_DT := 1.0 / STEPS_HZ
 const LIVE_SEC := 4
 ## 清场要写两帧（一帧写不满整张 HDR 缓冲的边角）
 const CLEAR_FRAMES := 2
-## 开口边的吸声层宽度（texel）：必须和着色器里的 sponge_w 是同一个数
-const SPONGE_W := 28.0
-## 切房时搬运的薄片宽度（texel）：至少要盖住一个 stencil
-const SEED_W := 12
 ## 搬过来的能量打个折：只有开口那一部分该穿过去
 const SEED_GAIN := 0.7
 ## α = 1 的材质每步损失多少振幅。60 步/秒，0.03 等于一秒掉到 0.16——
@@ -95,7 +91,7 @@ func _make_step_material(geo_tex: Texture2D, src_tex: Texture2D) -> ShaderMateri
 	m.set_shader_parameter("emit_px", _emit_pos)
 	m.set_shader_parameter("inject", 0.0)
 	m.set_shader_parameter("reset", 0.0)
-	m.set_shader_parameter("sponge_w", SPONGE_W)
+	m.set_shader_parameter("sponge_w", FieldSlab.SPONGE_W)
 	m.set_shader_parameter("seed", 0.0)
 	m.set_shader_parameter("seed_gain", SEED_GAIN)
 	return m
@@ -106,6 +102,10 @@ func _setup() -> void:
 	_room_system = get_tree().get_first_node_in_group("room_system")
 	_emit_pos = global_position
 	_listener = global_position
+	if _world == null:
+		# 没有世界就不会有几何、显示、合成光。场照样跑，但画面上一片黑——
+		# 这必须是能看见的警告，不然只会表现为"这间房怎么不亮"
+		push_warning("EchoSource: 场景里没有 echo_world，%s 的场不会显示" % name)
 
 	var geo_tex: Texture2D = null
 	var band_tex: Texture2D = null
@@ -120,8 +120,8 @@ func _setup() -> void:
 		alpha_tex = _blank_texture()    # 没有显示数据 = 谁都不吸声
 
 	# 双缓冲 ping-pong：两块 SubViewport 互相采样对方的纹理，轮流当"正面"。
-	# 之前用的是 hint_screen_texture（读自己的屏幕快照），实测它每步会带进
-	# 0.1~0.2 texel 的系统性偏移，累积后把波拉成一条 45° 长条。
+	# 不用 hint_screen_texture：那个"屏幕快照"每步会带进约 0.1~0.2 texel 的
+	# 系统性偏移，累积后把圆波拉成一条 45° 长条。
 	_vps.clear()
 	_mats.clear()
 	for k in 2:
@@ -211,7 +211,7 @@ func capture_slab(dir: Vector2i) -> Texture2D:
 	var img := tex.get_image()
 	if img == null:
 		return null
-	var rect := _slab_rect(dir, img.get_width(), img.get_height())
+	var rect := FieldSlab.rect(dir, img.get_width(), img.get_height())
 	if rect.position.x < 0 or rect.position.y < 0:
 		return null
 	if rect.end.x > img.get_width() or rect.end.y > img.get_height():
@@ -227,7 +227,7 @@ func capture_slab(dir: Vector2i) -> Texture2D:
 func seed_slab(tex: Texture2D, dir: Vector2i) -> void:
 	if _mat == null or tex == null or dir == Vector2i.ZERO:
 		return
-	var rect := _slab_rect(-dir, EchoField.FW, EchoField.FH)
+	var rect := FieldSlab.rect(-dir, EchoField.FW, EchoField.FH)
 	_set_param("seed_tex", tex)
 	_set_param("seed_size", Vector2(tex.get_width(), tex.get_height()))
 	_set_param("seed_at", Vector2(rect.position))
@@ -235,18 +235,6 @@ func seed_slab(tex: Texture2D, dir: Vector2i) -> void:
 	_live = LIVE_SEC          # 定场之后场还要能接着走
 	_steps = 0
 	_step_acc = 0.0
-
-
-## 薄片贴在哪：竖片（左右出口）是 x 起点，横片（上下出口）是 y 起点
-func _slab_rect(dir: Vector2i, w: int, h: int) -> Rect2i:
-	var inset := int(SPONGE_W)
-	if dir.x > 0:
-		return Rect2i(w - inset - SEED_W, 0, SEED_W, h)
-	if dir.x < 0:
-		return Rect2i(inset, 0, SEED_W, h)
-	if dir.y > 0:
-		return Rect2i(0, h - inset - SEED_W, w, SEED_W)
-	return Rect2i(0, inset, w, SEED_W)
 
 
 func field_texture() -> ViewportTexture:
