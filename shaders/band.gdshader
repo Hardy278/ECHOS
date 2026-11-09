@@ -1,7 +1,13 @@
 shader_type canvas_item;
 
-// 内侧表面带：有覆盖的格子里，到最近的空气 texel（或到另一种介质）的
-// 切比雪夫距离 <= band_px 的那些格子。严格 1 个 tile 像素厚。输出：R = 表面带强度。
+// 内侧表面带：有覆盖的格子里，沿上下左右（**不含斜角**）走 band_px 步以内
+// 能碰到空气 texel（或碰到另一种介质）的那些格子。严格 1 个 tile 像素厚。
+// 输出：R = 表面带强度。
+//
+// 斜对角不算：采样窗口还是方的（-band_px..band_px），但只采横竖两条线。
+// 连斜角一起算的话，拐角会多出一格 45° 方向的带（离表面 √2 格），
+// 看起来就比"一格"厚了。
+// band_px 的单位是场 texel：2 倍缩放的房间 band_px = 2 = 1 个 tile 像素。
 //
 // R 通道是**显现边缘**（surface）：0 = 这块砖不出高光，1 = 正常。
 //
@@ -42,6 +48,10 @@ void fragment() {
 		}
 		for (int dx = -MAX_BAND_PX; dx <= MAX_BAND_PX; dx++) {
 			if (dx < -band_px || dx > band_px) {
+				continue;
+			}
+			// 只认正交方向：dx、dy 都非零 = 斜对角，跳过。
+			if (dx != 0 && dy != 0) {
 				continue;
 			}
 			vec4 nb = texture(geo_tex, UV + vec2(float(dx), float(dy)) * px);

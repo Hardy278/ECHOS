@@ -37,10 +37,17 @@ func _refresh() -> void:
 			return
 	if not _src.has_method("field_texture"):
 		return
-	var tex: Texture2D = _src.call("field_texture")
-	if tex == null:
+	# compute 后端的场是 RD 纹理，Texture.get_image() 拿不到；它自己实现了 read_image()。
+	var img: Image = null
+	if _src.has_method("read_image"):
+		img = _src.call("read_image")
+	else:
+		var tex: Texture2D = _src.call("field_texture")
+		if tex != null:
+			img = tex.get_image()
+	if img == null:
 		return
-	_img = tex.get_image()
+	_img = img
 
 
 # ---------------------------------------------------------------- 查询

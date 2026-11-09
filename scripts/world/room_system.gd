@@ -151,7 +151,7 @@ func _cross(dir: Vector2i) -> void:
 
 	# 抄下正在穿出去的那一薄片：场还没清，这时读到的正好是"刚穿过门口"的时刻
 	var src := _player_source()
-	var slab: Texture2D = src.capture_slab(dir) if src != null else null
+	var slab: Image = src.capture_slab(dir) if src != null else null
 
 	# 位置连续：右出 → 新房间左侧同高度（越界了多少就带过去多少）
 	_enter(target, player.global_position - Vector2(dir) * SIZE, dir, slab)
@@ -159,7 +159,7 @@ func _cross(dir: Vector2i) -> void:
 
 ## 搬进另一个房间。切房和复活共用这一条路；失败时把 _busy 放回去。
 func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
-		slab: Texture2D = null) -> bool:
+		slab: Image = null) -> bool:
 	_busy = true
 	var room := _apply(coord, player_pos, true, dir, slab)
 	_busy = false
@@ -176,7 +176,7 @@ func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
 ## 以后的 HUD）订阅 `room_changed`，不要往这条序列里加行——信号的分发顺序等于
 ## 连接顺序，在调用点看不见，往这里加久了就又变回上帝函数。
 func _apply(coord: Vector2i, at: Vector2, move_player: bool,
-		dir := Vector2i.ZERO, slab: Texture2D = null) -> Room:
+		dir := Vector2i.ZERO, slab: Image = null) -> Room:
 	var scene := _registry.at(coord)
 	if scene == null:
 		push_error("RoomSystem: 没有坐标 %s 的房间。把场景放进 %s，并在它根节点的 coord 里填这个坐标"

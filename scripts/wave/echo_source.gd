@@ -5,60 +5,52 @@ class_name EchoSource
 ## 一个发声物体的声道。
 ##
 ## 每个能出声的东西（角色、钟、以后的水滴 / 敌人……）挂一个，就拥有**一份独立的**
-## 与世界等大的波动方程（SubViewport + wave_step_fb，尺寸见 EchoField），在自己的墙上跑。
-## 发声只是往这个场里注入一次能量（一个 inject_r 大小的高斯），
+## 与世界等大的波动方程。场怎么算交给后端（`WaveField`）：
+##   · ViewportWaveField —— 原来的 SubViewport ping-pong，一帧一步
+##   · ComputeWaveField  —— 主 RenderingDevice，一帧 N 步
+##
+## 这里只剩"什么时候发声、什么时候停、听者在哪"，以及把后端产出的纹理交给
+## canvas 合成层。发声只是往场里注入一次能量（一个 emit_radius 大小的高斯），
 ## **没有遮罩**：一声能传多远，由 damp、房间声学和中间撞上什么决定。
 ##
 ## 所有声源在世界那边（EchoWorld）按各自的音色（tint / gain）叠加成总的照亮。
-##
-## 场只在发声后推进 LIVE_SEC，然后停掉 SubViewport 。
+## 场只在发声后推进 LIVE_SEC，然后停掉后端。
 
-const STEP_SHADER := preload("res://shaders/wave_step_fb.gdshader")
 const VIEW_SHADER := preload("res://shaders/source_view.gdshader")
-## 一帧一步，每步跨 STRIDE 个 texel。波速 = STRIDE × √cfl × 60 世界单位/秒。
-const STRIDE := 4.0
-## 模拟固定 60 步/秒。波速 = stride × √cfl × 步率；
-## 每帧都推进的话，高刷屏上的波会比 60Hz 屏上快一倍多。
-const STEPS_HZ := 60.0
-const TICK_DT := 1.0 / STEPS_HZ
+const VIEWPORT_FIELD := preload("res://scripts/wave/viewport/viewport_wave_field.gd")
+const COMPUTE_FIELD_PATH := "res://scripts/wave/compute/compute_wave_field.gd"
+
 ## 一次发声后，场还值得推进多久；过了就停
-const LIVE_SEC := 4
-## 清场要写两帧（一帧写不满整张 HDR 缓冲的边角）
-const CLEAR_FRAMES := 2
-## 搬过来的能量打个折：只有开口那一部分该穿过去
-const SEED_GAIN := 0.7
-## α = 1 的材质每步损失多少振幅。60 步/秒，0.03 等于一秒掉到 0.16——
-## 这是"完美吸声体"的档，真正的材质填 0~1 之间。
-const ABSORB_GAIN := 0.03
+const LIVE_SEC := 4.0
+## 波速 = STRIDE × √cfl × 步率；两份后端共用同一组数
+const STRIDE := 4.0
+const CFL := 0.48
+const BASE_SPEED := 166.2769
 
 @export var damp := 0.9955          ## 模拟里每步的振幅衰减
 @export var env_decay := 0.966      ## 模拟里包络（余晖）的衰减
 @export var emit_radius := 14.0     ## 注入的高斯半径（这个物体的"嗓子"粗细）
 ## 到达听者耳朵多响算"听得清"：低于它的声音，它的整个波都不会画给玩家看
 @export var hear_ref := 0.05
-## 战争迷雾：true = 听不见就不画这一层（角色自己的声道这样用，才有"回声散掉"）。
-## false = 不管听不听得见，波照画（钟、机关、门这些"别的声源"就该一直亮着）。
+## 战争迷雾：true = 听不见就不画这一层
 @export var hear_gate := false
 @export var tint := Color(0.62, 0.82, 1.0)
 @export var gain := 1.2
-## 每次发声前把场清空。周期性的声音通常关掉：上一发的余晖还在，接着发才连贯。
+## 每次发声前把场清空。周期性的声音通常关掉
 @export var clear_before_emit := false
+## 声速（世界单位/秒）。0 = 用项目设置 echos/wave_speed，再没有就用 BASE_SPEED。
+## SubViewport 后端一帧只能一步，实际速度会被 60 步/秒封顶；compute 后端能吃满。
+@export var wave_speed := 0.0
 
-var _vps: Array = []             ## 两块场缓冲，轮流当"正面"
-var _mats: Array = []            ## 和两块缓冲对应的步进材质
-var _front := 0                   ## 当前正面是 _vps[_front]
-var _mat: ShaderMaterial        ## 步进 + 注入（= _mats[0]，只用来判空/取 _mat 的引用）
+var _field: WaveField
 var _view_mat: ShaderMaterial
 var _world: Node
 var _room_system: Node
 var _step_acc := 0.0
 var _live := 0.0
-var _amp := 0.0
-var _steps := 0
-var _clear_frames := 0
-var _seed_frames := 0
-var _emit_pos := Vector2.ZERO
+var _steps_per_second := 60.0
 var _listener := Vector2.ZERO
+var _compute_reason := ""
 
 
 func _enter_tree() -> void:
@@ -76,35 +68,83 @@ func _exit_tree() -> void:
 		_world.unregister(self)
 
 
-## 造一份步进材质。每步跨 STRIDE 个 texel。
-func _make_step_material(geo_tex: Texture2D, src_tex: Texture2D) -> ShaderMaterial:
-	var m := ShaderMaterial.new()
-	m.shader = STEP_SHADER
-	m.set_shader_parameter("geo_tex", geo_tex)
-	m.set_shader_parameter("src_tex", src_tex)
-	m.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
-	m.set_shader_parameter("stride", STRIDE)
-	m.set_shader_parameter("cfl", 0.48)
-	m.set_shader_parameter("ior_max", AcousticMedium.IOR_MAX)
-	m.set_shader_parameter("hf_damp", 0.02)
-	m.set_shader_parameter("inject_r", emit_radius)
-	m.set_shader_parameter("emit_px", _emit_pos)
-	m.set_shader_parameter("inject", 0.0)
-	m.set_shader_parameter("reset", 0.0)
-	m.set_shader_parameter("sponge_w", FieldSlab.SPONGE_W)
-	m.set_shader_parameter("seed", 0.0)
-	m.set_shader_parameter("seed_gain", SEED_GAIN)
-	return m
+# ---------------------------------------------------------------- 对外
 
+## 在自己身上发声（用默认参数）
+func emit(amp: float = 1.0, steps_wanted: int = 1) -> void:
+	emit_at(global_position, amp, steps_wanted)
+
+
+## 发声：amp 是注入振幅，steps 是连续注入的帧数。
+func emit_at(origin: Vector2, amp: float = 1.0, steps_wanted: int = 1) -> void:
+	if _field == null:
+		return
+	var clear_before := _live <= 0.0 or clear_before_emit
+	_live = LIVE_SEC
+	_field.inject(origin, amp, steps_wanted, clear_before)
+
+
+## 统一发声入口：挂在它下面的 SoundAbility 通过这里发进来
+func emit_sound(origin: Vector2, amp: float, steps_wanted: int) -> void:
+	emit_at(origin, amp, steps_wanted)
+
+
+## 外部清场（切房间时用）
+func clear_field() -> void:
+	_live = 0.0
+	_step_acc = 0.0
+	if _field != null:
+		_field.clear()
+
+
+## 切房前把"正在穿出房间"的那一薄片抄下来（Image）。
+func capture_slab(dir: Vector2i) -> Image:
+	return _field.capture_slab(dir) if _field != null else null
+
+
+## 切房后把薄片写进新房间的入口侧。
+func seed_slab(img: Image, dir: Vector2i) -> void:
+	if _field == null or img == null or dir == Vector2i.ZERO:
+		return
+	_field.seed_slab(img, dir)
+	_live = LIVE_SEC
+	_step_acc = 0.0
+
+
+func field_texture() -> Texture2D:
+	return _field.texture() if _field != null else null
+
+
+## CPU 采样入口（SoundSampler / 门 / 草）：后端自己决定从哪读。
+func read_image() -> Image:
+	return _field.read_image() if _field != null else null
+
+
+## 听者位置：这一层要按"它在我耳朵这儿有多响"来决定整层的闸门
+func set_listener(pos: Vector2) -> void:
+	_listener = pos
+	if _view_mat != null:
+		_view_mat.set_shader_parameter("listener_px", pos)
+
+
+func listener_position() -> Vector2:
+	return _listener
+
+
+## 切房后由 RoomSystem 调：声学和开口都按新房间重设
+func refresh_room() -> void:
+	_update_speed()
+	if _field != null:
+		_field.set_room(_room_acoustics(), _room_edges())
+
+
+# ---------------------------------------------------------------- 装配
 
 func _setup() -> void:
 	_world = get_tree().get_first_node_in_group("echo_world")
 	_room_system = get_tree().get_first_node_in_group("room_system")
-	_emit_pos = global_position
 	_listener = global_position
 	if _world == null:
-		# 没有世界就不会有几何、显示、合成光。场照样跑，但画面上一片黑——
-		# 这必须是能看见的警告，不然只会表现为"这间房怎么不亮"
 		push_warning("EchoSource: 场景里没有 echo_world，%s 的场不会显示" % name)
 
 	var geo_tex: Texture2D = null
@@ -114,45 +154,20 @@ func _setup() -> void:
 		geo_tex = _world.geometry_texture()
 		band_tex = _world.band_texture()
 		alpha_tex = _world.display_texture()
-	if geo_tex == null:
-		geo_tex = _blank_texture()      # 没有世界 = 空气，至少别把场涂白
-	if alpha_tex == null:
-		alpha_tex = _blank_texture()    # 没有显示数据 = 谁都不吸声
 
-	# 双缓冲 ping-pong：两块 SubViewport 互相采样对方的纹理，轮流当"正面"。
-	# 不用 hint_screen_texture：那个"屏幕快照"每步会带进约 0.1~0.2 texel 的
-	# 系统性偏移，累积后把圆波拉成一条 45° 长条。
-	_vps.clear()
-	_mats.clear()
-	for k in 2:
-		var vp := SubViewport.new()
-		vp.size = EchoField.VIEW_SIZE
-		vp.disable_3d = true
-		vp.transparent_bg = false
-		vp.use_hdr_2d = true
-		vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
-		vp.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
-		add_child(vp)
-		_vps.append(vp)
-
-	for k in 2:
-		var src_tex: Texture2D = (_vps[1 - k] as SubViewport).get_texture()
-		var m := _make_step_material(geo_tex, src_tex)
-		_mats.append(m)
-		var cr := ColorRect.new()
-		cr.size = EchoField.FIELD_SIZE
-		cr.material = m
-		cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		(_vps[k] as SubViewport).add_child(cr)
-	_mat = _mats[0]
-	_front = 0
-	_set_param("alpha_tex", alpha_tex)
-	_set_param("absorb_gain", ABSORB_GAIN)
-	_write_tuning()
+	_field = _make_field()
+	_field.name = "Field"
+	_field.damp = damp
+	_field.env_decay = env_decay
+	_field.emit_radius = emit_radius
+	add_child(_field)
+	_field.setup(geo_tex, alpha_tex)
+	_update_speed()
+	_field.set_room(_room_acoustics(), _room_edges())
 
 	_view_mat = ShaderMaterial.new()
 	_view_mat.shader = VIEW_SHADER
-	_view_mat.set_shader_parameter("env_field", field_texture())
+	_view_mat.set_shader_parameter("env_field", _field.texture())
 	_view_mat.set_shader_parameter("band_tex", band_tex)
 	_view_mat.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
 	_view_mat.set_shader_parameter("gain", gain)
@@ -164,193 +179,111 @@ func _setup() -> void:
 	if _world != null:
 		_world.register(self, _view_mat)
 
-	_clear_frames = CLEAR_FRAMES      # 新场从全 0 起步
+
+## 后端选择。设置 `echos/wave_backend`：
+##   · "viewport" → 强制旧后端（驱动有 bug 时的逃生口）
+##   · 其他值（默认 "compute"）→ 先探测平台，支持就 compute，不支持才退回
+## 只探测"根本跑不了"的情况；shader 编译失败这类属于 bug，应该在开发期暴露，
+## 不在这里悄悄吞掉。
+func _make_field() -> WaveField:
+	var mode := String(ProjectSettings.get_setting("echos/wave_backend", "compute"))
+	if mode == "viewport":
+		return VIEWPORT_FIELD.new() as WaveField
+
+	if _compute_supported():
+		var script := load(COMPUTE_FIELD_PATH) as Script
+		if script != null:
+			return script.new() as WaveField
+		push_warning("EchoSource: 载入不了 %s，退回 SubViewport 后端" % COMPUTE_FIELD_PATH)
+	else:
+		push_warning("EchoSource: %s，退回 SubViewport 后端" % _compute_reason)
+	return VIEWPORT_FIELD.new() as WaveField
 
 
-## 在自己身上发声（用默认参数）
-func emit(amp: float = 1.0, steps_wanted: int = 1) -> void:
-	emit_at(global_position, amp, steps_wanted)
+## 平台能力探测。会调用一次主 RenderingDevice 的格式查询（只读，不提交任何东西）。
+func _compute_supported() -> bool:
+	_compute_reason = ""
+	if DisplayServer.get_name() == "headless":
+		_compute_reason = "headless 没有 RenderingDevice"
+		return false
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		_compute_reason = "当前渲染后端没有 RenderingDevice（Compatibility）"
+		return false
+	var usage := (RenderingDevice.TEXTURE_USAGE_STORAGE_BIT
+			| RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
+			| RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
+			| RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
+			| RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT)
+	if not rd.texture_is_format_supported_for_usage(
+			RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT, usage):
+		_compute_reason = "RGBA16F 不支持 storage/sampling/copy/update"
+		return false
+	return true
 
 
-## 发声：amp 是注入振幅，steps 是连续注入的帧数。
-##
-## 没有遮罩：注入就是一个 inject_r 半径的高斯，能传多远交给 damp 和几何。
-func emit_at(origin: Vector2, amp: float = 1.0, steps_wanted: int = 1) -> void:
-	_emit_pos = origin
-	_amp = amp
-	_steps = maxi(_steps, steps_wanted)
-	if _live <= 0.0 or clear_before_emit:
-		_clear_frames = CLEAR_FRAMES
-	_live = LIVE_SEC
-	if _mat != null:
-		_write_tuning()          # 房间可能换过了，声学跟着换
-		_set_param("emit_px", _emit_pos)
+## 从声速反推每秒步数。两份后端用同一组 STRIDE / CFL，所以速度定义只有一份。
+func _update_speed() -> void:
+	var s := wave_speed
+	if s <= 0.0:
+		s = float(ProjectSettings.get_setting("echos/wave_speed", 0.0))
+	if s <= 0.0:
+		s = BASE_SPEED
+	_steps_per_second = s / (STRIDE * sqrt(CFL))
+	if _field != null:
+		# 后端跑不到请求的步率时（viewport 封顶 60），按它实际能跑的来换算每步衰减。
+		_field.set_step_rate(minf(_steps_per_second, _field.max_steps_per_frame() * 60.0))
 
 
-## 统一发声入口：挂在它下面的 SoundAbility 通过这里发进来
-func emit_sound(origin: Vector2, amp: float, steps_wanted: int) -> void:
-	emit_at(origin, amp, steps_wanted)
-
-
-## 外部清场（切房间时用）：两帧把场写成 0，然后停掉，别带着旧房间的反射走
-func clear_field() -> void:
-	_clear_frames = CLEAR_FRAMES
-	_live = 0.0
-	_steps = 0
-	_step_acc = 0.0
-
-
-## 切房前把"正在穿出房间"的那一薄片抄下来。dir 是穿越方向。
-## 走 CPU 读回一次（12×270，几毫秒）：GPU 那边同一帧里既抄又清，渲染顺序不保证。
-func capture_slab(dir: Vector2i) -> Texture2D:
-	if _vps.is_empty() or dir == Vector2i.ZERO:
-		return null
-	var tex := field_texture()
-	if tex == null:
-		return null
-	var img := tex.get_image()
-	if img == null:
-		return null
-	var rect := FieldSlab.rect(dir, img.get_width(), img.get_height())
-	if rect.position.x < 0 or rect.position.y < 0:
-		return null
-	if rect.end.x > img.get_width() or rect.end.y > img.get_height():
-		return null
-	var part := img.get_region(rect)
-	if part.get_format() != Image.FORMAT_RGBAF:
-		part.convert(Image.FORMAT_RGBAF)
-	return ImageTexture.create_from_image(part)
-
-
-## 切房后把薄片写进新房间的入口侧：刚才那一声跟着你进来。
-## dir 是刚才的穿越方向，薄片贴到反方向那条边上。
-func seed_slab(tex: Texture2D, dir: Vector2i) -> void:
-	if _mat == null or tex == null or dir == Vector2i.ZERO:
-		return
-	var rect := FieldSlab.rect(-dir, EchoField.FW, EchoField.FH)
-	_set_param("seed_tex", tex)
-	_set_param("seed_size", Vector2(tex.get_width(), tex.get_height()))
-	_set_param("seed_at", Vector2(rect.position))
-	_seed_frames = 1
-	_live = LIVE_SEC          # 定场之后场还要能接着走
-	_steps = 0
-	_step_acc = 0.0
-
-
-func field_texture() -> ViewportTexture:
-	return (_vps[_front] as SubViewport).get_texture() if not _vps.is_empty() else null
-
-
-## 听者位置：这一层要按"它在我耳朵这儿有多响"来决定整层的闸门
-func set_listener(pos: Vector2) -> void:
-	_listener = pos
-	if _view_mat != null:
-		_view_mat.set_shader_parameter("listener_px", pos)
-
-
-## 最近一次的听者位置（实体显形也用它，保证和声场同一个闸门）
-func listener_position() -> Vector2:
-	return _listener
-
+# ---------------------------------------------------------------- 帧
 
 func _process(delta: float) -> void:
-	if _vps.is_empty():
+	if _field == null:
 		return
-
-	# 清场优先：这两帧只把场写成 0，不注入
-	if _clear_frames > 0:
-		_masks(true, false)
-		_step_render()
-		_clear_frames -= 1
-		return
-
-	# 定场：清完之后写一帧薄片，之后交给场自己演化
-	if _seed_frames > 0:
-		_masks(true, true)
-		_step_render()
-		_seed_frames -= 1
-		return
-
-	_masks(false, false)
 
 	if _live > 0.0:
 		_live -= delta
 		if _live <= 0.0:
 			_live = 0.0
-			_steps = 0
 
+	# 没在响：只剩"挂起的清场/定场"要走完，走完就收渲染
 	if _live <= 0.0:
 		_step_acc = 0.0
-		_hold()
+		if _field.is_busy():
+			_field.advance(0)
+		else:
+			_field.stop()
+		_set_view_texture()
 		return
 
-	# 固定步率：一帧最多推进一步
+	# 固定步率：一帧最多走后端允许的步数。
+	# 低帧率时 accumulate 会给出 >1 步；SubViewport 后端只吃 1 步（所以会变慢），
+	# compute 后端可以吃满，声速不再跟帧率挂钩。
+	var tick := 1.0 / maxf(_steps_per_second, 1.0)
 	_step_acc += delta
-	if _step_acc < TICK_DT:
-		return
-	_step_acc = minf(_step_acc - TICK_DT, TICK_DT)
+	var n := 0
+	var max_n := _field.max_steps_per_frame()
+	while _step_acc >= tick and n < max_n:
+		_step_acc -= tick
+		n += 1
+	# 掉帧时别把积压无限带下去
+	if _step_acc > tick:
+		_step_acc = tick
 
-	if _steps > 0:
-		_set_param("inject", _amp)
-		_steps -= 1
-	else:
-		_set_param("inject", 0.0)
-
-	_step_render()
+	if n > 0:
+		_field.advance(n)
+	# 必须在 advance 之后挂：SubViewport 后端每步会换正面纹理，
+	# 提前挂会永远晚一帧（compute 后端的 Texture2DRD 是同一个对象，这里只是顺手）。
+	_set_view_texture()
 
 
-## 两块缓冲轮流当"正面"：往背面写一步，然后把背面变成正面
-func _step_render() -> void:
-	var back := 1 - _front
-	(_vps[back] as SubViewport).render_target_update_mode = SubViewport.UPDATE_ONCE
-	_front = back
-	(_vps[1 - back] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
+## compute 后端在初始化完成前给的是占位纹理；每帧重挂一次，初始化完成后自然切过去。
+func _set_view_texture() -> void:
 	if _view_mat != null:
-		_view_mat.set_shader_parameter("env_field", field_texture())
-
-
-## reset / seed 两个 uniform 的**唯二**写入口。
-##
-## 它们是在**这一帧渲染时**才被读的，而 SubViewport 的渲染排在本帧所有 _process
-## 之后。所以顺序必须是：先把这一帧要用的值写全 → 再请求渲染 → 渲染之后不要再碰。
-## 同帧里写成"置 1 → 请求渲染 → 清 0"，那次渲染读到的是 0：
-## 清场的那一帧其实是一次普通推进，定场的薄片则根本写不进去（切房传光失效）。
-func _masks(reset: bool, seed: bool) -> void:
-	_set_param("reset", 1.0 if reset else 0.0)
-	_set_param("seed", 1.0 if seed else 0.0)
-
-
-## 停掉推进，保留当前画面
-func _hold() -> void:
-	(_vps[_front] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
-
-
-## 两块材质的参数一起写（每次写的是"背面"那块，不确定是哪块）
-func _set_param(name: StringName, v) -> void:
-	for m in _mats:
-		(m as ShaderMaterial).set_shader_parameter(name, v)
+		_view_mat.set_shader_parameter("env_field", _field.texture())
 
 
 # ---------------------------------------------------------------- 房间声学
-
-## 房间给倍率，物体保留自己的嗓子：reverb 让余晖拖长，absorb 让能量掉得更快。
-## 顺带把"哪几条边是开口"写进去——开口那边是吸声层，不是反射壁。
-func _write_tuning() -> void:
-	if _mat == null:
-		return
-	var a := _room_acoustics()
-	var env := 1.0 - (1.0 - env_decay) * (1.0 - a.x * 0.9)
-	var dm := damp * (1.0 - a.y * 0.05)
-	var edges := _room_edges()
-	_set_param("env_decay", env)
-	_set_param("damp", dm)
-	_set_param("sponge_edges", edges)
-
-
-## 切房后由 RoomSystem 调：声学和开口都按新房间重设
-func refresh_room() -> void:
-	_write_tuning()
-
 
 func _room_acoustics() -> Vector2:
 	if _room_system == null or not is_instance_valid(_room_system):
@@ -366,9 +299,3 @@ func _room_edges() -> Vector4:
 	if _room_system != null and _room_system.has_method("edges"):
 		return _room_system.edges()
 	return Vector4.ZERO
-
-
-func _blank_texture() -> Texture2D:
-	var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	return ImageTexture.create_from_image(img)

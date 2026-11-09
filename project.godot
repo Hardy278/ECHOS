@@ -30,6 +30,11 @@ window/size/window_width_override=1440
 window/size/window_height_override=810
 window/stretch/mode="canvas_items"
 
+[echos]
+
+wave_backend="compute"
+wave_speed=0.0
+
 [input]
 
 move_left={
