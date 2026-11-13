@@ -30,6 +30,7 @@ zoom = Vector2(2, 2)
 
 [node name="EchoWorld" type="Node2D" parent="." unique_id=1809233156]
 script = ExtResource("4_world")
+wave_speed = 300.0
 
 [node name="Rooms" type="Node2D" parent="." unique_id=1957283041]
 script = ExtResource("5_rooms")

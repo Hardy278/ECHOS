@@ -43,6 +43,12 @@ position = Vector2(24, 168)
 [node name="GroundGrass4" parent="Grass" unique_id=1663604772 instance=ExtResource("10_2172q")]
 position = Vector2(462, 216)
 
+[node name="GroundGrass5" parent="Grass" unique_id=319161586 instance=ExtResource("10_2172q")]
+position = Vector2(162, 232)
+
+[node name="GroundGrass6" parent="Grass" unique_id=1685467002 instance=ExtResource("10_2172q")]
+position = Vector2(302, 232)
+
 [node name="Flower" parent="Grass" unique_id=601167432 instance=ExtResource("7_i87m8")]
 position = Vector2(318, 232)
 
@@ -54,13 +60,14 @@ position = Vector2(432, 216)
 
 [node name="HangingGrass" parent="Grass" unique_id=26479011 instance=ExtResource("6_grass")]
 position = Vector2(152, 64)
+segments = 16
 
 [node name="HangingGrass2" parent="Grass" unique_id=1894403631 instance=ExtResource("6_grass")]
 position = Vector2(236, 64)
-segments = 14
+segments = 18
 
 [node name="HangingGrass3" parent="Grass" unique_id=1009579226 instance=ExtResource("6_grass")]
-position = Vector2(176, 64)
+position = Vector2(172, 64)
 spread = 6.5
 segments = 9
 seg_length = 4.0
@@ -74,6 +81,18 @@ segments = 14
 
 [node name="HangingGrass6" parent="Grass" unique_id=1614447151 instance=ExtResource("6_grass")]
 position = Vector2(460, 80)
+segments = 9
+wave_amp = 1.4
+jitter = 0.283
+
+[node name="HangingGrass7" parent="Grass" unique_id=1408831466 instance=ExtResource("6_grass")]
+position = Vector2(256, 64)
+segments = 9
+wave_amp = 1.4
+jitter = 0.283
+
+[node name="HangingGrass8" parent="Grass" unique_id=2020844225 instance=ExtResource("6_grass")]
+position = Vector2(420, 64)
 segments = 9
 wave_amp = 1.4
 jitter = 0.283

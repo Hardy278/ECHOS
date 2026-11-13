@@ -28,5 +28,5 @@ func _update_hud() -> void:
 	var cd_txt: String = "可发声" if cd <= 0.0 else "冷却 %.1fs" % cd
 	var info: String = world.debug_line() if world != null else ""
 	var tail: String = "" if player.hint.is_empty() else "\n" + player.hint
-	hud.text = "A/D 移动  空格 跳  左键/Q 发声  ·  %d FPS\n%s\n%s\n%s%s" % [
+	hud.text = "A/D 移动  W/S 爬梯  空格 跳  左键/Q 发声  ·  %d FPS\n%s\n%s\n%s%s" % [
 			Engine.get_frames_per_second(), where, cd_txt, info, tail]

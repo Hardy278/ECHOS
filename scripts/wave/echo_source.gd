@@ -38,9 +38,8 @@ const BASE_SPEED := 166.2769
 @export var gain := 1.2
 ## 每次发声前把场清空。周期性的声音通常关掉
 @export var clear_before_emit := false
-## 声速（世界单位/秒）。0 = 用项目设置 echos/wave_speed，再没有就用 BASE_SPEED。
-## SubViewport 后端一帧只能一步，实际速度会被 60 步/秒封顶；compute 后端能吃满。
-@export var wave_speed := 0.0
+## 声速是**全局**的：只认 EchoWorld.wave_speed（见 main.tscn 的 EchoWorld）。
+## 声源不再有独立的 wave_speed，避免同一个世界里两种波速。
 
 var _field: WaveField
 var _view_mat: ShaderMaterial
@@ -223,8 +222,12 @@ func _compute_supported() -> bool:
 
 
 ## 从声速反推每秒步数。两份后端用同一组 STRIDE / CFL，所以速度定义只有一份。
+## 声速是全局的：EchoWorld.wave_speed > 项目设置 > BASE_SPEED。
 func _update_speed() -> void:
-	var s := wave_speed
+	var s := 0.0
+	var w := _world as EchoWorld
+	if w != null:
+		s = w.wave_speed
 	if s <= 0.0:
 		s = float(ProjectSettings.get_setting("echos/wave_speed", 0.0))
 	if s <= 0.0:

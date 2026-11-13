@@ -32,6 +32,16 @@ var geometry: Node            # WaveGeometry
 ## 调大渗得更远（砖块内部更亮），调小只在表面附近亮。
 @export var bleed_decay := 0.62
 
+## 声速（世界单位/秒）：**全局唯一**，所有 EchoSource 都用它。
+## 0 = 用项目设置 echos/wave_speed，再没有就用 EchoSource.BASE_SPEED（166.28）。
+## 放在世界上而不是 Project Settings：手写的自定义段在编辑器面板里不一定显示，
+## 这里的导出在 main.tscn 选中 EchoWorld 就能直接调。
+## 运行中改它会立刻推给现有声源（走 refresh_room）。
+@export var wave_speed := 0.0:
+	set(v):
+		wave_speed = v
+		_push_speed()
+
 var _light_vp: SubViewport
 var _light_root: Control
 ## 光渗缓冲：低分辨率 ping-pong 两块。让"撞到表面的光"渗进实体内部。
@@ -49,6 +59,19 @@ var _black_tex: Texture2D
 
 func _enter_tree() -> void:
 	add_to_group("echo_world")
+
+
+## 运行中改 wave_speed：让所有活着的声源重读一遍（顺带重读房间声学）。
+## 场景加载时属性可能先于节点进树被设置，这里做空保护。
+func _push_speed() -> void:
+	if not is_inside_tree():
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	for n in tree.get_nodes_in_group("echo_sources"):
+		if n.has_method("refresh_room"):
+			n.call("refresh_room")
 
 
 func _ready() -> void:

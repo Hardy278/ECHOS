@@ -21,4 +21,4 @@ gain = 1.1
 [node name="Hum" type="Node" parent="Echo" unique_id=452712789]
 script = ExtResource("3_hum")
 period = 0.1
-amp = 0.02
+amp = 0.01

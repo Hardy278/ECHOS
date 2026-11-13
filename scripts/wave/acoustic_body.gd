@@ -56,6 +56,7 @@ func pose_mirror(mirror: CanvasItem) -> void:
 		m.offset = a.offset
 		m.flip_h = a.flip_h
 		m.flip_v = a.flip_v
+		m.texture_repeat = a.texture_repeat
 		m.global_transform = a.global_transform
 	elif vis is Sprite2D:
 		var s := vis as Sprite2D
@@ -69,6 +70,7 @@ func pose_mirror(mirror: CanvasItem) -> void:
 		m.offset = s.offset
 		m.flip_h = s.flip_h
 		m.flip_v = s.flip_v
+		m.texture_repeat = s.texture_repeat
 		m.global_transform = s.global_transform
 	else:
 		m.texture = _white_tex()

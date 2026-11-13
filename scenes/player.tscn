@@ -7,7 +7,7 @@
 [ext_resource type="Texture2D" uid="uid://c48d1emsdr2iu" path="res://sprites/player.png" id="7_sprite"]
 [ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="8_echo"]
 [ext_resource type="Script" uid="uid://b2itgoxi5cndx" path="res://scripts/object/abilities/drown_ability.gd" id="9_drown"]
-[ext_resource type="Script" path="res://scripts/object/abilities/thrust_ability.gd" id="10_thrust"]
+[ext_resource type="Script" uid="uid://b08cynaxqtgjf" path="res://scripts/object/abilities/thrust_ability.gd" id="10_thrust"]
 [ext_resource type="Resource" path="res://audio/profiles/shout.tres" id="11_shout"]
 [ext_resource type="Resource" path="res://audio/profiles/landing.tres" id="12_landing"]
 [ext_resource type="Resource" path="res://audio/profiles/thrust.tres" id="13_thrust"]
@@ -17,6 +17,8 @@ size = Vector2(10, 16)
 
 [node name="Player" type="CharacterBody2D" unique_id=1322106864]
 script = ExtResource("1_player")
+speed = 80.0
+jump_velocity = 300.0
 dash_amp = 0.6
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=771324102]
@@ -26,13 +28,15 @@ shape = SubResource("RectangleShape2D_body")
 texture_filter = 1
 texture = ExtResource("7_sprite")
 
-[node name="AudioListener" type="AudioListener2D" parent="." unique_id=4133187165]
+[node name="AudioListener" type="AudioListener2D" parent="." unique_id=-161780131]
 
 [node name="Echo" type="Node2D" parent="." unique_id=1623754491]
 script = ExtResource("8_echo")
-damp = 0.97
+damp = 0.92
 env_decay = 0.94
 emit_radius = 16.0
+hear_ref = 0.01
+hear_gate = true
 tint = Color(0.8799364, 0.7892666, 0.5208506, 1)
 
 [node name="Heartbeat" type="Node" parent="Echo" unique_id=1678985544]
@@ -41,14 +45,14 @@ amp = 0.045
 
 [node name="Landing" type="Node" parent="Echo" unique_id=679542595]
 script = ExtResource("5_land")
-audio = ExtResource("12_landing")
 amp = 0.1
+audio = ExtResource("12_landing")
 
 [node name="Shout" type="Node" parent="Echo" unique_id=506087389]
 script = ExtResource("6_shout")
-audio = ExtResource("11_shout")
 amp = 0.3
 cooldown = 1.5
+audio = ExtResource("11_shout")
 
 [node name="Thrust" type="Node" parent="Echo" unique_id=1414282882]
 script = ExtResource("10_thrust")
@@ -58,4 +62,3 @@ audio = ExtResource("13_thrust")
 script = ExtResource("9_drown")
 amp = 0.2
 steps = 2
-
