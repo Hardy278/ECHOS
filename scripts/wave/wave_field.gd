@@ -79,6 +79,10 @@ func texture() -> Texture2D:
 
 
 func read_image() -> Image:
+	# headless 的 dummy 渲染器没有真实纹理，read_image 会报 "t is null"。
+	# 这不是运行错误，只是没有 GPU 可读；返回 null，调用方按"没数据"处理。
+	if DisplayServer.get_name() == "headless":
+		return null
 	var t := texture()
 	return t.get_image() if t != null else null
 

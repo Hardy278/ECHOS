@@ -24,8 +24,10 @@ const TILE_LIGHT_SHADER := preload("res://shaders/tile_light.gdshader")
 var layers: Array = []
 ## 当前房间的层绑定：[{def: EchoLayer, node: TileMapLayer}]，z 升序
 var _bindings: Array = []
-## 听者的位置（角色的坐标）：每个声源按"它在我这儿有多响"决定自己画多亮
-var listener := Vector2(240, 238)
+## 当前用来渲染/决策的听者（现在只有 player；以后相机跟随谁就设谁）
+var active_listener: EchoListener
+## 所有注册过的听者：每个会听的生物一份
+var listeners: Array[EchoListener] = []
 var geometry: Node            # WaveGeometry
 
 ## 光渗的衰减（每步）。0.62 ≈ 渗 2~3 个 tile 就暗下去。
@@ -87,10 +89,23 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	for s in _sources:
-		if is_instance_valid(s) and s.has_method("set_listener"):
-			s.set_listener(listener)
 	_step_bleed()
+	_apply_perception()
+
+
+## 把当前听者的感知推给每个声源的合成层。
+## EchoListener 只出数据；这里是渲染消费者，负责把它接到 source_view 的 uniform。
+func _apply_perception() -> void:
+	var l := active_listener
+	for s in _sources:
+		if not is_instance_valid(s) or not (s is EchoSource):
+			continue
+		var src := s as EchoSource
+		if l == null:
+			src.disable_listener_view()
+		else:
+			src.set_listener_view(l.global_position, l.distance_scale,
+					l.min_audible, l.curve_a, l.curve_c)
 
 
 # ---------------------------------------------------------------- 对外
@@ -127,13 +142,27 @@ func light_texture() -> Texture2D:
 
 ## 实体（钟、机关、敌人）共用的一份材质：和 tile_light 是同一个着色器，
 ## 只是层增益不同。实体自己的 Sprite2D / AnimatedSprite2D 直接挂它，
-## 于是"实体被照到才显形"和"听不见就看不见"全部沿用合成光那一套，
-## 不需要给实体单独求光。
+## 于是"实体被照到才显形"沿用合成光那一套，不需要给实体单独求光。
 func entity_material() -> ShaderMaterial:
 	return _entity_mat
 
 
-## 声源注册：把它那层视图挂到合成层上，之后每帧给它推听者位置
+## 听者注册：只登记，不碰合成光。听得见谁由 EchoListener 自己算。
+func register_listener(l: EchoListener) -> void:
+	if l == null or listeners.has(l):
+		return
+	listeners.append(l)
+	if active_listener == null:
+		active_listener = l
+
+
+func unregister_listener(l: EchoListener) -> void:
+	listeners.erase(l)
+	if active_listener == l:
+		active_listener = listeners[0] if not listeners.is_empty() else null
+
+
+## 声源注册：把它那层视图挂到合成层上
 func register(source: Node, view_mat: ShaderMaterial) -> void:
 	if source == null or view_mat == null or _light_root == null:
 		return

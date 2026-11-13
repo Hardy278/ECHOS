@@ -9,9 +9,10 @@ class_name EchoSource
 ##   · ViewportWaveField —— 原来的 SubViewport ping-pong，一帧一步
 ##   · ComputeWaveField  —— 主 RenderingDevice，一帧 N 步
 ##
-## 这里只剩"什么时候发声、什么时候停、听者在哪"，以及把后端产出的纹理交给
-## canvas 合成层。发声只是往场里注入一次能量（一个 emit_radius 大小的高斯），
-## **没有遮罩**：一声能传多远，由 damp、房间声学和中间撞上什么决定。
+## 这里只剩"什么时候发声、什么时候停"，以及把后端产出的纹理交给 canvas 合成层。
+## 发声只是往场里注入一次能量（一个 emit_radius 大小的高斯），**没有遮罩**：
+## 一声能传多远，由 damp、房间声学和中间撞上什么决定。
+## 听者不在这个类里：谁听得见谁，是 EchoListener 的数据。
 ##
 ## 所有声源在世界那边（EchoWorld）按各自的音色（tint / gain）叠加成总的照亮。
 ## 场只在发声后推进 LIVE_SEC，然后停掉后端。
@@ -26,14 +27,12 @@ const LIVE_SEC := 4.0
 const STRIDE := 4.0
 const CFL := 0.48
 const BASE_SPEED := 166.2769
+## 给 EchoListener 的包络缓存刷新间隔（10 Hz）。按需读，不主动每帧读。
+const PROBE_MS := 100
 
 @export var damp := 0.9955          ## 模拟里每步的振幅衰减
 @export var env_decay := 0.966      ## 模拟里包络（余晖）的衰减
 @export var emit_radius := 14.0     ## 注入的高斯半径（这个物体的"嗓子"粗细）
-## 到达听者耳朵多响算"听得清"：低于它的声音，它的整个波都不会画给玩家看
-@export var hear_ref := 0.05
-## 战争迷雾：true = 听不见就不画这一层
-@export var hear_gate := false
 @export var tint := Color(0.62, 0.82, 1.0)
 @export var gain := 1.2
 ## 每次发声前把场清空。周期性的声音通常关掉
@@ -48,7 +47,8 @@ var _room_system: Node
 var _step_acc := 0.0
 var _live := 0.0
 var _steps_per_second := 60.0
-var _listener := Vector2.ZERO
+var _probe_img: Image
+var _probe_ms := -1
 var _compute_reason := ""
 
 
@@ -119,15 +119,41 @@ func read_image() -> Image:
 	return _field.read_image() if _field != null else null
 
 
-## 听者位置：这一层要按"它在我耳朵这儿有多响"来决定整层的闸门
-func set_listener(pos: Vector2) -> void:
-	_listener = pos
+## 这个点此刻有多响（包络 B 通道，0..1）。
+## 按需读：最多每 PROBE_MS 毫秒读一次，多个听者共享同一份缓存。
+func sample_at(pos: Vector2) -> float:
+	if _live <= 0.0:
+		_probe_img = null
+		return 0.0
+	var now := Time.get_ticks_msec()
+	if _probe_img == null or now - _probe_ms >= PROBE_MS:
+		_probe_img = read_image()
+		_probe_ms = now
+	if _probe_img == null:
+		return 0.0
+	var x := clampi(int(pos.x), 0, _probe_img.get_width() - 1)
+	var y := clampi(int(pos.y), 0, _probe_img.get_height() - 1)
+	return _probe_img.get_pixel(x, y).b
+
+
+## 由 EchoWorld 每帧推当前听者的感知参数。
+## shader 里按每个点算 z = x * exp(-d / L)，再过 g(z)。
+func set_listener_view(pos: Vector2, scale: float, min_audible: float,
+		a: float, c: float) -> void:
+	if _view_mat == null:
+		return
+	_view_mat.set_shader_parameter("listener_px", pos)
+	_view_mat.set_shader_parameter("dist_scale", scale)
+	_view_mat.set_shader_parameter("min_audible", min_audible)
+	_view_mat.set_shader_parameter("curve_a", a)
+	_view_mat.set_shader_parameter("curve_c", c)
+	_view_mat.set_shader_parameter("enable", 1.0)
+
+
+## 没有听者时：回到绝对亮度，不做感知衰减。
+func disable_listener_view() -> void:
 	if _view_mat != null:
-		_view_mat.set_shader_parameter("listener_px", pos)
-
-
-func listener_position() -> Vector2:
-	return _listener
+		_view_mat.set_shader_parameter("enable", 0.0)
 
 
 ## 切房后由 RoomSystem 调：声学和开口都按新房间重设
@@ -142,7 +168,6 @@ func refresh_room() -> void:
 func _setup() -> void:
 	_world = get_tree().get_first_node_in_group("echo_world")
 	_room_system = get_tree().get_first_node_in_group("room_system")
-	_listener = global_position
 	if _world == null:
 		push_warning("EchoSource: 场景里没有 echo_world，%s 的场不会显示" % name)
 
@@ -171,9 +196,8 @@ func _setup() -> void:
 	_view_mat.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
 	_view_mat.set_shader_parameter("gain", gain)
 	_view_mat.set_shader_parameter("tint", tint)
-	_view_mat.set_shader_parameter("hear_ref", hear_ref)
-	_view_mat.set_shader_parameter("hear_gate", 1.0 if hear_gate else 0.0)
-	_view_mat.set_shader_parameter("listener_px", global_position)
+	# 等 EchoWorld 推听者参数；在那之前直接用绝对亮度。
+	_view_mat.set_shader_parameter("enable", 0.0)
 
 	if _world != null:
 		_world.register(self, _view_mat)

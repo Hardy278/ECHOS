@@ -11,6 +11,7 @@
 [ext_resource type="Resource" path="res://audio/profiles/shout.tres" id="11_shout"]
 [ext_resource type="Resource" path="res://audio/profiles/landing.tres" id="12_landing"]
 [ext_resource type="Resource" path="res://audio/profiles/thrust.tres" id="13_thrust"]
+[ext_resource type="Script" uid="uid://uoltkh3kj8tm" path="res://scripts/wave/echo_listener.gd" id="14_listener"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
 size = Vector2(10, 16)
@@ -32,11 +33,9 @@ texture = ExtResource("7_sprite")
 
 [node name="Echo" type="Node2D" parent="." unique_id=1623754491]
 script = ExtResource("8_echo")
-damp = 0.92
+damp = 0.95
 env_decay = 0.94
 emit_radius = 16.0
-hear_ref = 0.01
-hear_gate = true
 tint = Color(0.8799364, 0.7892666, 0.5208506, 1)
 
 [node name="Heartbeat" type="Node" parent="Echo" unique_id=1678985544]
@@ -62,3 +61,6 @@ audio = ExtResource("13_thrust")
 script = ExtResource("9_drown")
 amp = 0.2
 steps = 2
+
+[node name="EchoListener" type="Node2D" parent="." unique_id=1938475620]
+script = ExtResource("14_listener")
