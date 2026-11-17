@@ -13,6 +13,7 @@ size = Vector2(16, 32)
 
 [node name="Door" type="StaticBody2D" unique_id=669058902]
 script = ExtResource("1_door")
+ring_amp = 1.0
 
 [node name="Top" type="Sprite2D" parent="." unique_id=246872953]
 texture_filter = 1

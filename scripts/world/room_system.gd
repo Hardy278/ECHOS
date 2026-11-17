@@ -169,8 +169,8 @@ func _enter(coord: Vector2i, player_pos: Vector2, dir := Vector2i.ZERO,
 ## 进房间的**唯一**一条序列。begin 和 _enter 都走这里，所以不会出现
 ## "开局进的房间少了某一步、切房进的房间多了某一步"这种漂移。
 ##
-## 顺序有依赖：先拔旧房间（碰撞和图块立刻离场，避免和新房间重叠一帧）
-## → 搬人 → 清场（旧房的墙形反射不能跟过来）→ 绑世界 → 恢复状态 → 定场薄片。
+## 顺序有依赖：先实例化并检查新房间根节点类型（失败时旧房还在）→ 拔旧房间
+## → 挂新房间 → 搬人 → 清场 → 绑世界 → 恢复状态 → 定场薄片。
 ##
 ## **这里只放有顺序依赖的步骤。** 只想"知道房间换了"的东西（水、相机、音乐、
 ## 以后的 HUD）订阅 `room_changed`，不要往这条序列里加行——信号的分发顺序等于
@@ -183,6 +183,11 @@ func _apply(coord: Vector2i, at: Vector2, move_player: bool,
 				% [coord, rooms_dir])
 		return null
 
+	# 先实例化并验证，再动旧房间；新房间失败时旧房不能丢。
+	var room := _spawn(coord, scene)
+	if room == null:
+		return null
+
 	var old := current
 	if old != null:
 		_state.save(old)
@@ -190,9 +195,7 @@ func _apply(coord: Vector2i, at: Vector2, move_player: bool,
 		remove_child(old)
 		old.queue_free()
 
-	var room := _spawn(coord, scene)
-	if room == null:
-		return null
+	add_child(room)
 
 	if move_player:
 		player.global_position = at
@@ -244,6 +247,7 @@ func _clamp_inside() -> void:
 
 # ---------------------------------------------------------------- 装配
 
+## 只实例化 + 根节点类型检查，不挂进树；_apply 在旧房拔掉后才 add_child。
 func _spawn(coord: Vector2i, scene: PackedScene) -> Room:
 	var room := scene.instantiate() as Room
 	if room == null:
@@ -252,7 +256,6 @@ func _spawn(coord: Vector2i, scene: PackedScene) -> Room:
 	if room.coord != coord:
 		push_warning("RoomSystem: 房间 %s 里填的 coord 是 %s，以房间表为准" % [coord, room.coord])
 	room.coord = coord
-	add_child(room)          # 进树，_ready 立刻跑
 	return room
 
 

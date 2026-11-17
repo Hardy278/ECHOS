@@ -6,6 +6,7 @@
 [sub_resource type="Resource" id="Layer_bg"]
 script = ExtResource("2_layer")
 path = NodePath("Background")
+light_gain = 2.0
 acoustic = false
 
 [sub_resource type="Resource" id="Layer_fore"]

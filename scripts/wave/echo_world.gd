@@ -1,6 +1,10 @@
 class_name EchoWorld
 extends Node2D
 
+## 世界基础设施（几何/光/材质）建完后发一次；不表示当前房间已绑定。
+## EchoSource._setup 只依赖纹理对象和 world 接口，房间绑定后由 RoomSystem 刷新。
+signal world_ready
+
 ## 回声世界：所有发声物体共享的那一份"世界"。
 ##
 ## - `geometry`：每帧把**当前房间**的前景/中景/后景现画成一张活几何纹理（WaveGeometry），
@@ -29,6 +33,10 @@ var active_listener: EchoListener
 ## 所有注册过的听者：每个会听的生物一份
 var listeners: Array[EchoListener] = []
 var geometry: Node            # WaveGeometry
+var _band_img: Image          # 表面带缓存，换房失效；CPU/GPU 共用同一张 band 纹理
+## 几何/光/材质是否已经建完；**不表示当前房间已绑定**。
+## EchoSource 用它决定立刻初始化还是等 world_ready。
+var initialized := false
 
 ## 光渗的衰减（每步）。0.62 ≈ 渗 2~3 个 tile 就暗下去。
 ## 调大渗得更远（砖块内部更亮），调小只在表面附近亮。
@@ -86,6 +94,8 @@ func _ready() -> void:
 	_build_bleed()
 	_build_display()
 	_build_entity_material()
+	initialized = true
+	world_ready.emit()
 
 
 func _process(_delta: float) -> void:
@@ -116,6 +126,7 @@ func bind_room(room: Room) -> void:
 		return
 	layers = room.layers()
 	_bindings = room.bindings()
+	_band_img = null
 	_clear_bleed()
 	_build_tile_materials()
 	if geometry != null:
@@ -128,6 +139,24 @@ func geometry_texture() -> Texture2D:
 
 func band_texture() -> Texture2D:
 	return geometry.band_texture() if geometry != null else null
+
+
+## 表面带的 CPU 副本。只读一次，换房时在 bind_room 里失效。
+## 给 EchoSource.sample_brightness_at() 用，避免每个声源各读一次 GPU。
+func band_image() -> Image:
+	if DisplayServer.get_name() == "headless":
+		return null
+	if _band_img == null and geometry != null:
+		var tex: Texture2D = geometry.band_texture()
+		if tex != null:
+			_band_img = tex.get_image()
+	return _band_img
+
+
+## 世界坐标 → 场坐标。现在 1 texel = 1 world unit、房间在原点，所以是恒等；
+## 以后房间若加 Transform，只改这一处。
+func world_to_field(pos: Vector2) -> Vector2:
+	return pos
 
 
 ## 显示纹理（R = show，G = alpha）。波场每步读 G 当体积吸声系数。

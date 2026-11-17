@@ -18,7 +18,7 @@ size = Vector2(10, 16)
 
 [node name="Player" type="CharacterBody2D" unique_id=1322106864]
 script = ExtResource("1_player")
-speed = 80.0
+speed = 200.0
 jump_velocity = 300.0
 dash_amp = 0.6
 

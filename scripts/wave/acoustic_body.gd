@@ -85,8 +85,12 @@ func pose_mirror(mirror: CanvasItem) -> void:
 				* Transform2D(0.0, rect_size, 0.0, Vector2.ZERO)
 
 
-## 兜底用的白点（1×1），画成矩形
+## 兜底用的白点（1×1），画成矩形。所有 AcousticBody 共享同一张。
+static var _white_cache: Texture2D
+
 func _white_tex() -> Texture2D:
-	var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
-	img.fill(Color(1, 1, 1, 1))
-	return ImageTexture.create_from_image(img)
+	if _white_cache == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		img.fill(Color(1, 1, 1, 1))
+		_white_cache = ImageTexture.create_from_image(img)
+	return _white_cache

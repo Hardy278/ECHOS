@@ -49,15 +49,18 @@ func set_room(p_acoustics: Vector2, p_edges: Vector4) -> void:
 
 
 func inject(_pos: Vector2, _amp: float, _steps: int, _clear_before: bool) -> void:
-	pass
+	push_error("WaveField.inject() must be implemented")
+	assert(false, "WaveField.inject() must be implemented")
 
 
 func clear() -> void:
-	pass
+	push_error("WaveField.clear() must be implemented")
+	assert(false, "WaveField.clear() must be implemented")
 
 
 func advance(_steps: int) -> void:
-	pass
+	push_error("WaveField.advance() must be implemented")
+	assert(false, "WaveField.advance() must be implemented")
 
 
 ## 没有活着的波时收掉渲染，别让后端空转

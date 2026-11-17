@@ -30,6 +30,9 @@ const GameConst := preload("res://scripts/world/constants.gd")
 ## 这段"放手时间"就是"按死 W + 点跳"能加速的原因：跳的冲量先把人送上去，
 ## 宽限结束再抓回梯子接着爬。
 @export var ladder_jump_grace := 0.12
+## 从顶格按 S 回梯子时，允许身体还没进入梯子判定范围的宽限；
+## 不靠瞬移把人塞进去，而是让 _climb_step 自己往下走。
+const CLIMB_ENTER_GRACE := 0.12
 
 ## 防止 v = 0 时功率除法爆掉
 const DASH_V_FLOOR := 20.0
@@ -57,6 +60,7 @@ var _dash_left := 0.0
 
 ## 爬梯状态
 var _climbing := false
+var _climb_enter := 0.0
 ## 爬到顶格后"驻足"：站在梯子顶，不吃重力，S 继续下爬、A/D 走开、跳跳走
 var _perched := false
 var _ladder: Ladder = null
@@ -166,10 +170,13 @@ func _physics_process(delta: float) -> void:
 
 ## 爬梯的一帧：W/S（或 ↑/↓）上下，A/D 左右（climb_side_speed）；
 ## 空格优先解除并起跳。**不把角色拉到梯子中心**：横向完全由玩家控制。
-func _climb_step(_delta: float) -> void:
+func _climb_step(delta: float) -> void:
 	if Input.is_action_just_pressed("jump"):
 		_end_climb(true)
 		return
+
+	if _climb_enter > 0.0:
+		_climb_enter = maxf(0.0, _climb_enter - delta)
 
 	var ix := Input.get_axis("move_left", "move_right")
 	var dir := Input.get_axis("move_up", "move_down")
@@ -187,8 +194,10 @@ func _climb_step(_delta: float) -> void:
 		_perch(_ladder)
 		return
 
-	# 左右走出梯子的判定范围就松手，下一帧开始自由落体
-	if _ladder == null or not is_instance_valid(_ladder) or not _ladder.overlaps_body(self):
+	# 左右走出梯子的判定范围就松手，下一帧开始自由落体。
+	# 刚从顶格下来时给 CLIMB_ENTER_GRACE，让身体先进入判定范围，不瞬移。
+	if _climb_enter <= 0.0 and (_ladder == null or not is_instance_valid(_ladder) \
+			or not _ladder.overlaps_body(self)):
 		_climbing = false
 		_ladder = null
 
@@ -208,6 +217,7 @@ func _try_start_climb() -> bool:
 
 func _start_climb(l: Ladder) -> void:
 	_climbing = true
+	_climb_enter = 0.0
 	_perched = false
 	_ladder = l
 	_perch_ladder = null
@@ -219,6 +229,7 @@ func _start_climb(l: Ladder) -> void:
 ## 站到梯子顶格上。位置取"脚刚好在顶格上边缘"，不吃重力。
 func _perch(l: Ladder) -> void:
 	_climbing = false
+	_climb_enter = 0.0
 	_ladder = null
 	_perched = true
 	_perch_ladder = l
@@ -257,7 +268,8 @@ func _perch_step(_delta: float) -> void:
 	velocity = Vector2.ZERO
 
 
-## 从顶格回到梯子上：把身体往下挪进梯子的判定范围，再交给 _climb_step。
+## 从顶格回到梯子上：保持当前位置，给一小段进入判定范围的宽限；
+## 不瞬移，下一帧 _climb_step 自己往下走。
 func _resume_climb() -> void:
 	var l := _perch_ladder
 	if l == null or not is_instance_valid(l):
@@ -265,11 +277,12 @@ func _resume_climb() -> void:
 		_perch_ladder = null
 		return
 	_start_climb(l)
-	global_position.y = l.top_y() + 4.0
+	_climb_enter = CLIMB_ENTER_GRACE
 
 
 func _end_climb(jump: bool) -> void:
 	_climbing = false
+	_climb_enter = 0.0
 	_ladder = null
 	_perched = false
 	_perch_ladder = null

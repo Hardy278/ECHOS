@@ -29,6 +29,10 @@ const CFL := 0.48
 const BASE_SPEED := 166.2769
 ## 给 EchoListener 的包络缓存刷新间隔（10 Hz）。按需读，不主动每帧读。
 const PROBE_MS := 100
+## source_view 的亮度参数。CPU 的 sample_brightness_at() 和 shader 共用这一组值。
+const BG_GAIN := 0.45
+const EDGE_GAIN := 4.0
+const BLUR_PX := 1.2
 
 @export var damp := 0.9955          ## 模拟里每步的振幅衰减
 @export var env_decay := 0.966      ## 模拟里包络（余晖）的衰减
@@ -42,7 +46,7 @@ const PROBE_MS := 100
 
 var _field: WaveField
 var _view_mat: ShaderMaterial
-var _world: Node
+var _world: EchoWorld
 var _room_system: Node
 var _step_acc := 0.0
 var _live := 0.0
@@ -57,13 +61,21 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
-	# 场景里的子节点比 Main._ready 先 ready；推迟一帧，等 EchoWorld 建好再挂
-	_setup.call_deferred()
+	# 明确的生命周期：World 已 initialized 就立刻 setup，否则等它的 world_ready。
+	# 不再用 call_deferred 猜场景树顺序。
+	_world = get_tree().get_first_node_in_group("echo_world") as EchoWorld
+	if _world == null:
+		push_warning("EchoSource: 场景里没有 echo_world，%s 的场不会显示" % name)
+		return
+	if _world.initialized:
+		_setup()
+	else:
+		_world.world_ready.connect(_setup, CONNECT_ONE_SHOT)
 
 
 func _exit_tree() -> void:
 	# 房间被销毁时声源跟着走：把合成层里那一份也摘掉，别留死视图
-	if _world != null and is_instance_valid(_world) and _world.has_method("unregister"):
+	if _world != null and is_instance_valid(_world):
 		_world.unregister(self)
 
 
@@ -119,21 +131,89 @@ func read_image() -> Image:
 	return _field.read_image() if _field != null else null
 
 
-## 这个点此刻有多响（包络 B 通道，0..1）。
-## 按需读：最多每 PROBE_MS 毫秒读一次，多个听者共享同一份缓存。
+## 这个点此刻有多亮（max(|R|, B)，0..1）。和 source_view 的 lum() 同一定义。
 func sample_at(pos: Vector2) -> float:
+	if not _ensure_probe():
+		return 0.0
+	return _env_at(_field_pos(pos))
+
+
+## 和 source_view 完全同一个 x：五点模糊、band 3×3 max、bg/edge/gain。
+## EchoListener 用这个，AI 的“听到多亮”才和画面一致。
+func sample_brightness_at(pos: Vector2) -> float:
+	if not _ensure_probe():
+		return 0.0
+	var p := _field_pos(pos)
+
+	var e := _env_at(p) * 0.36
+	e += _env_at(p + Vector2(BLUR_PX, 0.0)) * 0.16
+	e += _env_at(p - Vector2(BLUR_PX, 0.0)) * 0.16
+	e += _env_at(p + Vector2(0.0, BLUR_PX)) * 0.16
+	e += _env_at(p - Vector2(0.0, BLUR_PX)) * 0.16
+
+	var band := _band_at(p)
+	if band > 0.5:
+		var m := 0.0
+		for dy in [-1, 0, 1]:
+			for dx in [-1, 0, 1]:
+				m = maxf(m, _env_at(p + Vector2(dx, dy)))
+		e = maxf(e, m)
+
+	return clampf((e * BG_GAIN + band * EDGE_GAIN * e) * gain, 0.0, 1.0)
+
+
+func _ensure_probe() -> bool:
 	if _live <= 0.0:
 		_probe_img = null
-		return 0.0
+		return false
 	var now := Time.get_ticks_msec()
 	if _probe_img == null or now - _probe_ms >= PROBE_MS:
 		_probe_img = read_image()
 		_probe_ms = now
+	return _probe_img != null
+
+
+func _field_pos(pos: Vector2) -> Vector2:
+	if _world != null:
+		return _world.world_to_field(pos)
+	return pos
+
+
+## 双线性采样包络：和 source_view 的 filter_linear 对齐。
+func _env_at(p: Vector2) -> float:
 	if _probe_img == null:
 		return 0.0
-	var x := clampi(int(pos.x), 0, _probe_img.get_width() - 1)
-	var y := clampi(int(pos.y), 0, _probe_img.get_height() - 1)
-	return _probe_img.get_pixel(x, y).b
+	var w := _probe_img.get_width()
+	var h := _probe_img.get_height()
+	if w <= 0 or h <= 0:
+		return 0.0
+	var px := clampf(p.x, 0.0, float(w - 1))
+	var py := clampf(p.y, 0.0, float(h - 1))
+	var x0 := int(floor(px))
+	var y0 := int(floor(py))
+	var x1 := mini(x0 + 1, w - 1)
+	var y1 := mini(y0 + 1, h - 1)
+	var fx := px - float(x0)
+	var fy := py - float(y0)
+	var c00 := _probe_img.get_pixel(x0, y0)
+	var c10 := _probe_img.get_pixel(x1, y0)
+	var c01 := _probe_img.get_pixel(x0, y1)
+	var c11 := _probe_img.get_pixel(x1, y1)
+	# 和 source_view 的 lum() 一致：先分别插值 R、B，再 max(|R|, B)。
+	var r := lerpf(lerpf(c00.r, c10.r, fx), lerpf(c01.r, c11.r, fx), fy)
+	var b := lerpf(lerpf(c00.b, c10.b, fx), lerpf(c01.b, c11.b, fx), fy)
+	return maxf(absf(r), b)
+
+
+func _band_at(p: Vector2) -> float:
+	if _world == null:
+		return 0.0
+	var img := _world.band_image()
+	if img == null or img.get_width() <= 0 or img.get_height() <= 0:
+		return 0.0
+	var x := clampi(int(round(p.x)), 0, img.get_width() - 1)
+	var y := clampi(int(round(p.y)), 0, img.get_height() - 1)
+	return img.get_pixel(x, y).r
 
 
 ## 由 EchoWorld 每帧推当前听者的感知参数。
@@ -166,10 +246,14 @@ func refresh_room() -> void:
 # ---------------------------------------------------------------- 装配
 
 func _setup() -> void:
-	_world = get_tree().get_first_node_in_group("echo_world")
+	if _field != null:
+		return
+	if _world == null:
+		_world = get_tree().get_first_node_in_group("echo_world") as EchoWorld
 	_room_system = get_tree().get_first_node_in_group("room_system")
 	if _world == null:
 		push_warning("EchoSource: 场景里没有 echo_world，%s 的场不会显示" % name)
+		return
 
 	var geo_tex: Texture2D = null
 	var band_tex: Texture2D = null
@@ -196,6 +280,10 @@ func _setup() -> void:
 	_view_mat.set_shader_parameter("field_size", EchoField.FIELD_SIZE)
 	_view_mat.set_shader_parameter("gain", gain)
 	_view_mat.set_shader_parameter("tint", tint)
+	# CPU 的 sample_brightness_at() 和这里用同一组常量，AI 与画面才不会分叉。
+	_view_mat.set_shader_parameter("bg_gain", BG_GAIN)
+	_view_mat.set_shader_parameter("edge_gain", EDGE_GAIN)
+	_view_mat.set_shader_parameter("blur_px", BLUR_PX)
 	# 等 EchoWorld 推听者参数；在那之前直接用绝对亮度。
 	_view_mat.set_shader_parameter("enable", 0.0)
 

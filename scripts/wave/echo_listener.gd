@@ -8,7 +8,7 @@ extends Node2D
 ## 渲染和 AI 都是它的消费者。
 ##
 ## 三层：
-##   · 声波衰减 —— EchoSource 的场，一个参考系；已经含在 sample_at() 里
+##   · 声波衰减 —— EchoSource 的场，一个参考系；已经含在 sample_brightness_at() 里
 ##   · 距离衰减 —— z = x * exp(-d / L)，L = distance_scale
 ##   · 统一亮度曲线 —— y = z + a z(1-z)(c-z)，弱光提亮/强光压暗是同一曲线的两端
 ##
@@ -98,7 +98,7 @@ func perceive(source: EchoSource) -> float:
 		return 0.0
 
 	var d := global_position.distance_to(source.global_position)
-	var x := source.sample_at(global_position) * source.gain
+	var x := source.sample_brightness_at(global_position)
 	var z := x * exp(-d / maxf(distance_scale, 0.001))
 	if z <= min_audible:
 		return 0.0
@@ -115,10 +115,13 @@ func audible_sources() -> Array[Hearing]:
 	return out
 
 
-## 最清楚的那一个；没有就 null。
+## 最清楚的那一个；没有就 null。O(n)，不需要排序。
 func loudest() -> Hearing:
-	var all := audible_sources()
-	return all[0] if not all.is_empty() else null
+	var best: Hearing = null
+	for h in _current.values():
+		if best == null or h.strength > best.strength:
+			best = h
+	return best
 
 
 func strength_of(source: EchoSource) -> float:

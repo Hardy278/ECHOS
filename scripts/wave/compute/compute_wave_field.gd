@@ -35,6 +35,7 @@ var _env_set := RID()
 var _sampler := RID()
 var _inited := false
 var _init_requested := false
+var _failed := false
 var _retry := 0
 var _bound := false
 var _next := 0
@@ -53,7 +54,7 @@ func setup(p_geo: Texture2D, p_alpha: Texture2D) -> void:
 
 
 func _process(_delta: float) -> void:
-	if _inited or _init_requested:
+	if _inited or _init_requested or _failed:
 		return
 	# 场纹理的 RID 要等几何视口渲染过一帧才有效；没拿到就下一帧再试。
 	_retry += 1
@@ -154,26 +155,26 @@ func seed_slab(img: Image, dir: Vector2i) -> void:
 func _init_compute(geo_rd: RID, alpha_rd: RID) -> void:
 	_rd = RenderingServer.get_rendering_device()
 	if _rd == null:
-		push_error("ComputeWaveField: 没有主 RenderingDevice（需要 Forward+/Mobile）")
+		_fail("ComputeWaveField: 没有主 RenderingDevice（需要 Forward+/Mobile）")
 		return
 
 	var file := load(WAVE_SHADER_PATH) as RDShaderFile
 	if file == null:
-		push_error("ComputeWaveField: 载入不了 %s" % WAVE_SHADER_PATH)
+		_fail("ComputeWaveField: 载入不了 %s" % WAVE_SHADER_PATH)
 		return
 	var spirv := file.get_spirv()
 	var err := spirv.get_stage_compile_error(RenderingDevice.SHADER_STAGE_COMPUTE)
 	if not err.is_empty():
-		push_error("ComputeWaveField: 编译失败：%s" % err)
+		_fail("ComputeWaveField: 编译失败：%s" % err)
 		return
 
 	_shader = _rd.shader_create_from_spirv(spirv)
 	if not _shader.is_valid():
-		push_error("ComputeWaveField: shader_create_from_spirv 失败")
+		_fail("ComputeWaveField: shader_create_from_spirv 失败")
 		return
 	_pipeline = _rd.compute_pipeline_create(_shader)
 	if not _pipeline.is_valid():
-		push_error("ComputeWaveField: compute_pipeline_create 失败")
+		_fail("ComputeWaveField: compute_pipeline_create 失败")
 		return
 
 	var fmt := RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
@@ -183,7 +184,7 @@ func _init_compute(geo_rd: RID, alpha_rd: RID) -> void:
 			| RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
 			| RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT)
 	if not _rd.texture_is_format_supported_for_usage(fmt, usage):
-		push_error("ComputeWaveField: RGBA16F 不支持 storage+sampling")
+		_fail("ComputeWaveField: RGBA16F 不支持 storage+sampling")
 		return
 
 	var tf := RDTextureFormat.new()
@@ -198,13 +199,26 @@ func _init_compute(geo_rd: RID, alpha_rd: RID) -> void:
 
 	for i in 2:
 		_tex_rds[i] = _rd.texture_create(tf, RDTextureView.new(), [])
+		if not _tex_rds[i].is_valid():
+			_fail("ComputeWaveField: texture_create 失败")
+			return
 		_rd.texture_clear(_tex_rds[i], Color(0, 0, 0, 1), 0, 1, 0, 1)
 	for i in 2:
 		_sets[i] = _make_image_set(_tex_rds[i], _tex_rds[1 - i])
+		if not _sets[i].is_valid():
+			_fail("ComputeWaveField: uniform_set_create(image) 失败")
+			return
 
 	_sampler = _rd.sampler_create(RDSamplerState.new())
+	if not _sampler.is_valid():
+		_fail("ComputeWaveField: sampler_create 失败")
+		return
 	_env_set = _make_env_set(geo_rd, alpha_rd)
+	if not _env_set.is_valid():
+		_fail("ComputeWaveField: uniform_set_create(env) 失败")
+		return
 	_inited = true
+	_init_requested = false
 
 
 func _make_image_set(src: RID, dst: RID) -> RID:
@@ -301,25 +315,47 @@ func _bind_front() -> void:
 func _exit_tree() -> void:
 	if _tex != null:
 		_tex.texture_rd_rid = RID()
-	if _inited:
-		RenderingServer.call_on_render_thread(_free)
+	RenderingServer.call_on_render_thread(_free)
 
 
 func _free() -> void:
-	if _rd == null or not _inited:
-		return
+	_free_created_rids()
+	_init_requested = false
+
+
+func _fail(msg: String) -> void:
+	push_error(msg)
+	_free_created_rids()
+	_init_requested = false
+	_failed = true
+
+
+## 幂等：不管初始化有没有完成，把已经创建的有效 RID 全部释放。
+func _free_created_rids() -> void:
+	# Texture2DRD 先解绑，再释放底层 texture RID，避免它继续引用已释放的 RID。
+	if _tex != null:
+		_tex.texture_rd_rid = RID()
+
+	if _rd != null:
+		for i in _sets.size():
+			if _sets[i].is_valid():
+				_rd.free_rid(_sets[i])
+			_sets[i] = RID()
+		if _env_set.is_valid():
+			_rd.free_rid(_env_set)
+		_env_set = RID()
+		if _sampler.is_valid():
+			_rd.free_rid(_sampler)
+		_sampler = RID()
+		if _pipeline.is_valid():
+			_rd.free_rid(_pipeline)
+			_pipeline = RID()
+		if _shader.is_valid():
+			_rd.free_rid(_shader)
+			_shader = RID()
+		for i in _tex_rds.size():
+			if _tex_rds[i].is_valid():
+				_rd.free_rid(_tex_rds[i])
+			_tex_rds[i] = RID()
 	_inited = false
-	for s in _sets:
-		if s.is_valid():
-			_rd.free_rid(s)
-	if _env_set.is_valid():
-		_rd.free_rid(_env_set)
-	if _sampler.is_valid():
-		_rd.free_rid(_sampler)
-	if _pipeline.is_valid():
-		_rd.free_rid(_pipeline)
-	if _shader.is_valid():
-		_rd.free_rid(_shader)
-	for t in _tex_rds:
-		if t.is_valid():
-			_rd.free_rid(t)
+	_bound = false
