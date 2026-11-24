@@ -32,12 +32,12 @@ script = ExtResource("4_hekrs")
 normal_map = ExtResource("5_0kige")
 normal_strength = 0.8
 
-[node name="Ladder" type="Node" parent="." unique_id=418473247]
+[node name="Ladder" type="Node2D" parent="." unique_id=418473247]
 
 [node name="Ladder" parent="Ladder" unique_id=649290364 instance=ExtResource("6_732l0")]
 position = Vector2(280, 128)
 
-[node name="Grass" type="Node" parent="." unique_id=854786231]
+[node name="Grass" type="Node2D" parent="." unique_id=854786231]
 
 [node name="GroundGrass" parent="Grass" unique_id=122448546 instance=ExtResource("7_hekrs")]
 position = Vector2(24, 152)

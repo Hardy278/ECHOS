@@ -106,7 +106,7 @@ var _pts: Array = []      ## 每根一根 PackedVector2Array
 var _prev: Array = []
 var _rest: Array = []
 var _rest_len: Array = [] ## 每根每节的静止段长（正弦弯曲之后各节并不等长）
-var _fruits: Array[Fruit] = []
+var _hangings: Array[Node] = []   ## 挂在链上的东西：Fruit / Blueberry 等，只要有 mount_at + is_picked
 var _player: Node2D
 
 
@@ -114,16 +114,16 @@ func _ready() -> void:
 	# 锚点也在格上，否则整丛会系统性地偏半个像素
 	global_position = _snap(global_position)
 	_rebuild()
+	_collect_hangings()
 
-	# 编辑器里到此为止：没有合成光、没有玩家、不跑物理
+	# 编辑器里到此为止：没有合成光、没有玩家、不跑物理。
+	# 但挂着的果子要跟着重建后的链尖走，不然 Inspector 里调长度时果子会留在旧位置。
 	if Engine.is_editor_hint():
+		_drive_hangings()
 		queue_redraw()
 		return
 
 	_player = get_tree().get_first_node_in_group("player") as Node2D
-	for c in get_children():
-		if c is Fruit:
-			_fruits.append(c as Fruit)
 
 	var world := get_tree().get_first_node_in_group("echo_world")
 	if world != null and world.has_method("entity_material"):
@@ -137,6 +137,8 @@ func _on_shape_changed() -> void:
 	if not Engine.is_editor_hint():
 		return
 	_rebuild()
+	_collect_hangings()
+	_drive_hangings()
 	queue_redraw()
 
 
@@ -192,7 +194,7 @@ func _physics_process(delta: float) -> void:
 		for k in iterations:
 			_solve(s)
 	_hit_player(delta)
-	_drive_fruits()
+	_drive_hangings()
 	queue_redraw()
 
 
@@ -306,14 +308,44 @@ func _hit_player(delta: float) -> void:
 		_prev[s] = prev
 
 
-func _drive_fruits() -> void:
-	for f in _fruits:
-		if not is_instance_valid(f) or f.is_picked():
+func _collect_hangings() -> void:
+	_hangings.clear()
+	for c in get_children():
+		# Shape 节点也有 strand，但没有 at_index；用 at_index 区分"挂在链上的东西"
+		if c is ItemEntity or c is Fruit:
+			add_hanging(c)
+		elif c is Node2D and c.get("strand") != null and c.get("at_index") != null \
+				and c.has_method("mount_at"):
+			add_hanging(c)
+
+
+func add_hanging(n: Node) -> void:
+	if n != null and not _hangings.has(n):
+		_hangings.append(n)
+
+
+func _drive_hangings() -> void:
+	if _pts.is_empty():
+		return
+	for f in _hangings:
+		if not is_instance_valid(f):
 			continue
-		var s := clampi(f.strand, 0, _pts.size() - 1)
+		var s := clampi(int(f.get("strand")), 0, _pts.size() - 1)
 		var pts: PackedVector2Array = _pts[s]
-		var idx: int = f.at_index if f.at_index >= 0 else pts.size() - 1
-		f.mount_at(to_global(pts[clampi(idx, 0, pts.size() - 1)]))
+		var idx := int(f.get("at_index"))
+		if idx < 0:
+			idx = pts.size() - 1
+		var p := to_global(pts[clampi(idx, 0, pts.size() - 1)])
+
+		# 编辑器里直接摆位置（不调用非 @tool 脚本的方法），调长度/段数时果子跟着到链尖
+		if Engine.is_editor_hint():
+			if f is Node2D:
+				(f as Node2D).global_position = _snap(p)
+			continue
+
+		if bool(f.call("is_picked")):
+			continue
+		f.call("mount_at", p)
 
 
 # ---------------------------------------------------------------- 几何

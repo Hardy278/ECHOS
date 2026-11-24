@@ -20,22 +20,34 @@ func _ready() -> void:
 		push_warning("Door '%s': 订阅了 %d 条信道，但显示只有两颗点" % [id, channels.size()])
 
 	Channels.fired.connect(_on_fired)
-	# 先按信道算一次显示，再套"开过"的最终态——
-	# 顺序不能反：_refresh_state() 只看 fired，"开过"是另一份状态，
-	# 反着来会把已经全开的门顶格改回少几颗。
+	# 先按信道算一次显示，再处理"开过"或"两条都响过但门当时不在场"。
+	# 顺序不能反：_refresh_state() 只看 fired，"开过"是另一份状态。
 	_refresh_state()
-	restore_open_state()
+	if not Channels.is_opened(id) and Channels.is_all_fired(channels):
+		# 两条信道是在别的房间按的，门当时没加载，没收到 fired 信号；
+		# 这里补开，不能只靠 is_opened（那要门在场开过一次才会记）。
+		_apply_open(false)
+	else:
+		restore_open_state()
 	if _opened and not Channels.is_all_fired(channels):
 		push_warning("Door '%s': 门是开过的，但 fired 记录只有 %d/%d —— 顶格已按'开过'画成全开" % [
 				id, Channels.fired_count(channels), channels.size()])
 
 
-func _on_fired(_channel: StringName) -> void:
+func _on_fired(channel: StringName) -> void:
 	if _opened:
 		return
+	# 不是这扇门订阅的信道，不响应；否则别的按钮会让所有门一起闪。
+	if not channels.has(channel):
+		return
+
 	_refresh_state()
+	# 每按下一个按钮，门先响一声/闪一下，给"这条信道收到了"的反馈。
+	# 最后一条响完再开门，开门本身不再重复响（_apply_open(false)）。
+	_ring()
+
 	if Channels.is_all_fired(channels):
-		_apply_open(true)
+		_apply_open(false)
 
 
 ## 顶格换成"响了几条"那一张。"开过"优先：开过的门永远是全开图案，

@@ -54,6 +54,13 @@ func _process(_delta: float) -> void:
 	if _player.is_dashing():
 		return
 
+	# X 先给最近的可拾取物；这一下已经被拾取消费，就不要再坐下/发射
+	if _player.was_interaction_consumed():
+		return
+	if not _seated and _player.has_interaction_focus():
+		_player.hint = ""
+		return
+
 	if not _seated:
 		# 只有站在地上才能坐
 		if _player.is_on_floor():

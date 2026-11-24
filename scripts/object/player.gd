@@ -42,6 +42,11 @@ const HALF_HEIGHT := 8.0
 ## 环境物件（发射器之类）写进来的提示；HUD 每帧从角色身上拉
 var hint := ""
 
+## 最近可交互物：由 Interactor 每帧设置；X 会先交给它，没目标才落回 sit
+var _interaction_focus := false
+## 这一帧的 X 已经被拾取消费（给 Shooter 判断，避免同时坐下）
+var _interaction_consumed_ms := -1000
+
 ## 角色动态下落速度
 var _fall_speed := 0.0
 ## 土狼时间剩余
@@ -84,6 +89,27 @@ func is_climbing() -> bool:
 
 func is_perched() -> bool:
 	return _perched
+
+
+func is_seated() -> bool:
+	return _seated
+
+
+func set_interaction_focus(on: bool) -> void:
+	_interaction_focus = on
+
+
+func has_interaction_focus() -> bool:
+	return _interaction_focus
+
+
+## Interactor 拾取成功后调用：短时间内在 Shooter 眼里"这一下 X 已经用掉了"。
+func mark_interaction_consumed() -> void:
+	_interaction_consumed_ms = Time.get_ticks_msec()
+
+
+func was_interaction_consumed() -> bool:
+	return Time.get_ticks_msec() - _interaction_consumed_ms < 150
 
 
 ## 坐下：完全静止，等发射

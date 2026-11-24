@@ -34,7 +34,7 @@ normal_strength = 0.8
 [node name="Bell" parent="." unique_id=986843742 instance=ExtResource("6_ww1qw")]
 position = Vector2(263, 179)
 
-[node name="Grass" type="Node" parent="." unique_id=2133940164]
+[node name="Grass" type="Node2D" parent="." unique_id=2133940164]
 
 [node name="GroundGrass" parent="Grass" unique_id=122448546 instance=ExtResource("7_fq6gt")]
 position = Vector2(102, 200)

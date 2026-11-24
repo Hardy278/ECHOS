@@ -51,6 +51,17 @@ func is_empty() -> bool:
 	return _rooms.is_empty()
 
 
+## 所有已扫到的坐标，按 (y, x) 升序。给工具/调试用：
+## 遍历字典的顺序不稳定，谁要列房间就调这里，不要自己 get 私有字段。
+func coords() -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for c in _rooms:
+		out.append(c)
+	out.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.y < b.y or (a.y == b.y and a.x < b.x))
+	return out
+
+
 ## 一行房间表，启动时打到 Output：配置错了一眼能看到
 func describe() -> String:
 	if _rooms.is_empty():

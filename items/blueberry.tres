@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="ItemDef" format=3 uid="uid://bmpe1ax7gp0s7"]
+
+[ext_resource type="Script" uid="uid://b0b1qax1cpekq" path="res://scripts/items/item_def.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+id = &"blueberry"
+display_name = "黄绿浆果"
+description = "黄绿色的小浆果。"
+max_stack = 5

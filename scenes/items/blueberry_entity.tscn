@@ -1,0 +1,30 @@
+[gd_scene format=3 uid="uid://dx6l8d57xnk1x"]
+
+[ext_resource type="Script" uid="uid://teva11lavyjc" path="res://scripts/items/item_entity.gd" id="1_entity"]
+[ext_resource type="Resource" uid="uid://bmpe1ax7gp0s7" path="res://items/blueberry.tres" id="2_def"]
+[ext_resource type="Script" uid="uid://cce6eq8a2oyu0" path="res://scripts/items/pickup_ability.gd" id="3_pickup"]
+[ext_resource type="Script" uid="uid://cq33qfxiftk4d" path="res://scripts/wave/echo_source.gd" id="4_echo"]
+[ext_resource type="Script" uid="uid://cbwf5gq8rudy1" path="res://scripts/object/abilities/periodic_ability.gd" id="5_hum"]
+
+[node name="Blueberry" type="Node2D" unique_id=221550810]
+script = ExtResource("1_entity")
+item_def = ExtResource("2_def")
+
+[node name="Visual" type="Polygon2D" parent="." unique_id=1413094376]
+color = Color(0.55, 0.72, 0.18, 1)
+polygon = PackedVector2Array(-1, -1, 1, -1, 1, 1, -1, 1)
+
+[node name="EchoSource" type="Node2D" parent="." unique_id=2093977367]
+script = ExtResource("4_echo")
+damp = 0.97
+env_decay = 0.99
+emit_radius = 3.0
+tint = Color(0.7, 0.9, 0.35, 1)
+
+[node name="Hum" type="Node" parent="EchoSource" unique_id=32651113]
+script = ExtResource("5_hum")
+period = 0.12
+amp = 0.05
+
+[node name="PickupAbility" type="Node" parent="." unique_id=580896504]
+script = ExtResource("3_pickup")

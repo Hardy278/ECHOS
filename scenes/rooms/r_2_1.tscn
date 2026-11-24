@@ -32,7 +32,7 @@ script = ExtResource("4_83d28")
 normal_map = ExtResource("5_ls7mo")
 normal_strength = 0.8
 
-[node name="Doors" type="Node" parent="." unique_id=1147491089]
+[node name="Doors" type="Node2D" parent="." unique_id=1147491089]
 
 [node name="Door" parent="Doors" unique_id=669058902 instance=ExtResource("6_83d28")]
 position = Vector2(24, 168)
@@ -40,10 +40,10 @@ channels = Array[StringName]([&"switch_2_1_1", &"switch_3_0_1"])
 id = &"door_2_1"
 
 [node name="Switch" parent="Doors" unique_id=484367107 instance=ExtResource("7_ls7mo")]
-position = Vector2(307, 184)
+position = Vector2(201, 200)
 channel = &"switch_2_1_1"
 
-[node name="Grass" type="Node" parent="." unique_id=1467075823]
+[node name="Grass" type="Node2D" parent="." unique_id=1467075823]
 
 [node name="GroundGrass" parent="Grass" unique_id=122448546 instance=ExtResource("8_67725")]
 position = Vector2(56, 200)

@@ -29,7 +29,7 @@ script = ExtResource("20_presenter")
 normal_map = ExtResource("21_normal")
 normal_strength = 0.8
 
-[node name="Grass" type="Node" parent="." unique_id=833249274]
+[node name="Grass" type="Node2D" parent="." unique_id=833249274]
 
 [node name="GroundGrass" parent="Grass" unique_id=122448546 instance=ExtResource("10_2172q")]
 position = Vector2(146, 232)
